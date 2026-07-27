@@ -1,21 +1,24 @@
 {
-  "name": "it-smart-bloom",
+  "name": "zhisheng-bloom",
   "version": "0.1.0",
   "private": true,
   "scripts": {
-    "dev": "next dev",
+    "dev": "next dev --port 3059",
     "build": "next build",
-    "start": "next start",
+    "start": "next start --port 3059",
     "lint": "eslint"
   },
   "dependencies": {
     "next": "16.2.12",
+    "openai": "^6.49.0",
+    "qrcode": "^1.5.4",
     "react": "19.2.4",
     "react-dom": "19.2.4"
   },
   "devDependencies": {
     "@tailwindcss/postcss": "^4",
     "@types/node": "^20",
+    "@types/qrcode": "^1.5.6",
     "@types/react": "^19",
     "@types/react-dom": "^19",
     "eslint": "^9",
