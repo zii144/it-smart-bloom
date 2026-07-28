@@ -29,6 +29,8 @@ export type ImageGenerationOptions = {
   size: ImageSize;
   outputFormat: ImageOutputFormat;
   outputCompression: number;
+  /** Dev/preview only: skip OpenAI and reuse the source photo. */
+  fakeGenerate: boolean;
 };
 
 export type ImageGenerationOverrides = Partial<ImageGenerationOptions>;
@@ -74,6 +76,7 @@ export function defaultImageOptions(): ImageGenerationOptions {
     size: isOneOf(size, IMAGE_SIZES) ? size : "1024x1024",
     outputFormat: "jpeg",
     outputCompression: 90,
+    fakeGenerate: false,
   };
 }
 
@@ -123,6 +126,10 @@ export function resolveImageOptions(
       throw new Error("outputCompression 必須是 0–100 的整數。");
     }
     next.outputCompression = compression;
+  }
+
+  if (overrides.fakeGenerate !== undefined) {
+    next.fakeGenerate = Boolean(overrides.fakeGenerate);
   }
 
   return next;
@@ -176,6 +183,13 @@ export function parseImageOverrides(value: unknown): ImageGenerationOverrides {
     typeof body.outputCompression === "string"
   ) {
     overrides.outputCompression = Number(body.outputCompression);
+  }
+  if (typeof body.fakeGenerate === "boolean") {
+    overrides.fakeGenerate = body.fakeGenerate;
+  } else if (body.fakeGenerate === "true" || body.fakeGenerate === "1") {
+    overrides.fakeGenerate = true;
+  } else if (body.fakeGenerate === "false" || body.fakeGenerate === "0") {
+    overrides.fakeGenerate = false;
   }
 
   return overrides;

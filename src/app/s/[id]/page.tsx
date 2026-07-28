@@ -1,5 +1,6 @@
 import type { Metadata } from "next";
 import { SessionExperience } from "@/components/session-experience";
+import { isImageTuningEnabled } from "@/lib/runtime-env";
 
 export const metadata: Metadata = {
   title: "你的路老師似顏繪",
@@ -16,5 +17,7 @@ export default async function SessionPage({
   params: Promise<{ id: string }>;
 }) {
   const { id } = await params;
-  return <SessionExperience id={id} />;
+  return (
+    <SessionExperience id={id} tuningEnabled={isImageTuningEnabled()} />
+  );
 }

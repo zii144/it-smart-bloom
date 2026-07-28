@@ -5,7 +5,6 @@ import { useEffect, useState } from "react";
 import { BloomMark } from "@/components/brand";
 import { DevImageSettingsModal } from "@/components/dev-image-settings-modal";
 import type { ImageGenerationOptions } from "@/lib/image-options";
-import { isImageTuningEnabled } from "@/lib/runtime-env";
 
 type SessionStatus = {
   id: string;
@@ -14,9 +13,8 @@ type SessionStatus = {
   inputUrl: string;
   resultUrl: string | null;
   error: string | null;
+  generationOptions?: ImageGenerationOptions | null;
 };
-
-const tuningEnabled = isImageTuningEnabled();
 
 function withCacheBust(url: string | null) {
   if (!url) return null;
@@ -24,7 +22,13 @@ function withCacheBust(url: string | null) {
   return `${url}${join}t=${Date.now()}`;
 }
 
-export function SessionExperience({ id }: { id: string }) {
+export function SessionExperience({
+  id,
+  tuningEnabled,
+}: {
+  id: string;
+  tuningEnabled: boolean;
+}) {
   const [session, setSession] = useState<SessionStatus | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [showSettings, setShowSettings] = useState(false);
@@ -73,7 +77,10 @@ export function SessionExperience({ id }: { id: string }) {
 
         if (initial.status === "ready" || initial.status === "failed") {
           if (tuningEnabled) {
-            setPendingForce(false);
+            setPendingForce(initial.status === "failed");
+            if (initial.generationOptions) {
+              setLastOptions(initial.generationOptions);
+            }
             setShowSettings(true);
           } else {
             const generationResponse = await fetch(
@@ -107,7 +114,7 @@ export function SessionExperience({ id }: { id: string }) {
       active = false;
       if (timer) window.clearTimeout(timer);
     };
-  }, [id]);
+  }, [id, tuningEnabled]);
 
   async function runWithOptions(
     options: ImageGenerationOptions,

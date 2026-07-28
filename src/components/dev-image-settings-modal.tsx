@@ -26,6 +26,7 @@ const FALLBACK: ImageGenerationOptions = {
   size: "1024x1024",
   outputFormat: "jpeg",
   outputCompression: 90,
+  fakeGenerate: false,
 };
 
 export function DevImageSettingsModal({
@@ -112,11 +113,35 @@ export function DevImageSettingsModal({
             onConfirm(options);
           }}
         >
+          <label className="dev-settings-fake">
+            <input
+              type="checkbox"
+              checked={options.fakeGenerate}
+              disabled={!ready}
+              onChange={(event) =>
+                setOptions((current) => ({
+                  ...current,
+                  fakeGenerate: event.target.checked,
+                }))
+              }
+            />
+            <span>
+              <strong>假生成 Fake generate</strong>
+              <small>跳過 OpenAI，直接用原圖走完整流程（約 1 秒）</small>
+            </span>
+          </label>
+
+          {options.fakeGenerate && (
+            <p className="dev-settings-fake-note">
+              已啟用流程測試模式：不會呼叫 API，也不會產生費用。
+            </p>
+          )}
+
           <label className="dev-settings-field">
             <span>模型 Model</span>
             <select
               value={options.model}
-              disabled={!ready}
+              disabled={!ready || options.fakeGenerate}
               onChange={(event) =>
                 setOptions((current) => ({
                   ...current,
@@ -136,7 +161,7 @@ export function DevImageSettingsModal({
             <span>品質 Quality</span>
             <select
               value={options.quality}
-              disabled={!ready}
+              disabled={!ready || options.fakeGenerate}
               onChange={(event) =>
                 setOptions((current) => ({
                   ...current,
@@ -157,7 +182,7 @@ export function DevImageSettingsModal({
             <span>尺寸 Size</span>
             <select
               value={options.size}
-              disabled={!ready}
+              disabled={!ready || options.fakeGenerate}
               onChange={(event) =>
                 setOptions((current) => ({
                   ...current,
@@ -177,7 +202,7 @@ export function DevImageSettingsModal({
             <span>輸出格式 Format</span>
             <select
               value={options.outputFormat}
-              disabled={!ready}
+              disabled={!ready || options.fakeGenerate}
               onChange={(event) =>
                 setOptions((current) => ({
                   ...current,
@@ -204,7 +229,7 @@ export function DevImageSettingsModal({
               max={100}
               step={5}
               value={options.outputCompression}
-              disabled={!ready || compressionDisabled}
+              disabled={!ready || compressionDisabled || options.fakeGenerate}
               onChange={(event) =>
                 setOptions((current) => ({
                   ...current,
@@ -222,11 +247,13 @@ export function DevImageSettingsModal({
           <div className="dev-settings-summary">
             <strong>本次設定</strong>
             <code>
-              {options.model} · {options.quality} · {options.size} ·{" "}
-              {options.outputFormat}
-              {options.outputFormat !== "png"
-                ? ` @${options.outputCompression}`
-                : ""}
+              {options.fakeGenerate
+                ? "FAKE · 原圖直出 · 流程測試"
+                : `${options.model} · ${options.quality} · ${options.size} · ${options.outputFormat}${
+                    options.outputFormat !== "png"
+                      ? ` @${options.outputCompression}`
+                      : ""
+                  }`}
             </code>
           </div>
 
@@ -241,7 +268,7 @@ export function DevImageSettingsModal({
               </button>
             )}
             <button type="submit" className="primary-button" disabled={!ready}>
-              {confirmLabel}
+              {options.fakeGenerate ? "假生成並繼續" : confirmLabel}
             </button>
           </div>
         </form>

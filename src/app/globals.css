@@ -1400,6 +1400,39 @@ button {
   transform: rotate(1.5deg);
 }
 
+.share-actions {
+  display: grid;
+  gap: 16px;
+  justify-items: stretch;
+}
+
+.line-receive-button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
+  min-height: 52px;
+  padding: 0 20px;
+  border-radius: 999px;
+  background: #06c755;
+  color: #fff;
+  font-size: 15px;
+  font-weight: 700;
+  text-decoration: none;
+  box-shadow: 0 12px 28px rgba(6, 199, 85, 0.28);
+  transition: transform 160ms ease, filter 160ms ease;
+}
+
+.line-receive-button svg {
+  width: 22px;
+  height: 22px;
+}
+
+.line-receive-button:hover {
+  transform: translateY(-1px);
+  filter: brightness(1.03);
+}
+
 .qr-card img {
   display: block;
   width: 100%;
@@ -2178,6 +2211,47 @@ button {
   border-radius: 14px;
   background: rgba(217, 110, 89, 0.14);
   color: var(--coral-dark);
+  font-size: 13px;
+  font-weight: 600;
+}
+
+.dev-settings-fake {
+  display: grid;
+  grid-template-columns: auto 1fr;
+  gap: 12px;
+  align-items: start;
+  padding: 12px 14px;
+  border: 1px solid rgba(36, 61, 55, 0.14);
+  border-radius: 16px;
+  background: rgba(239, 189, 85, 0.14);
+  cursor: pointer;
+}
+
+.dev-settings-fake input {
+  width: 18px;
+  height: 18px;
+  margin-top: 2px;
+}
+
+.dev-settings-fake strong {
+  display: block;
+  font-size: 14px;
+}
+
+.dev-settings-fake small {
+  display: block;
+  margin-top: 4px;
+  color: var(--ink-soft);
+  font-size: 12px;
+  line-height: 1.4;
+}
+
+.dev-settings-fake-note {
+  margin: 0;
+  padding: 10px 12px;
+  border-radius: 14px;
+  background: rgba(143, 174, 146, 0.18);
+  color: var(--ink);
   font-size: 13px;
   font-weight: 600;
 }
