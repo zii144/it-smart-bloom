@@ -1,7 +1,7 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { POST } from "@/app/api/sessions/route";
-import { createSession, getSession } from "@/lib/sessions";
-import { expiredAt, imageFile, jpegBytes, patchMetadata } from "./helpers";
+import { getSession } from "@/lib/sessions";
+import { imageFile, jpegBytes } from "./helpers";
 
 const { afterMock, generateImageMock } = vi.hoisted(() => ({
   afterMock: vi.fn(),
@@ -66,18 +66,6 @@ describe("POST /api/sessions", () => {
 
     await flushAfterCallbacks();
     expect(generateImageMock).toHaveBeenCalledWith(payload.id, null);
-  });
-
-  it("sweeps expired photos off disk on every capture", async () => {
-    const stale = await createSession(imageFile());
-    await patchMetadata(stale.id, { expiresAt: expiredAt() });
-
-    await POST(createRequest());
-    await flushAfterCallbacks();
-
-    await expect(getSession(stale.id, true)).rejects.toMatchObject({
-      status: 404,
-    });
   });
 
   it("keeps the session usable when the background render throws", async () => {

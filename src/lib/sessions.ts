@@ -33,6 +33,11 @@ export type ImageSession = {
   error?: string;
   generationStartedAt?: string;
   generationOptions?: ImageGenerationOptions;
+  identity?: {
+    kind: "lineId" | "mobile";
+    value: string;
+    claimedAt: string;
+  };
 };
 
 function sessionsRoot() {
@@ -140,15 +145,11 @@ export async function createSession(
   return session;
 }
 
-export async function getSession(id: string, allowExpired = false) {
+export async function getSession(id: string) {
   try {
     const session = JSON.parse(
       await readFile(metadataPath(id), "utf8"),
     ) as ImageSession;
-
-    if (!allowExpired && Date.parse(session.expiresAt) <= Date.now()) {
-      throw new SessionError("這個人像創作連結已經失效。", 410);
-    }
 
     return session;
   } catch (error) {
@@ -219,9 +220,8 @@ export async function readResultImage(id: string) {
 }
 
 /**
- * Both the booth and the phone promise the guest that their photo disappears
- * once the link expires, so something has to actually delete it. A kiosk runs
- * all day on one machine; without this every face ever captured stays on disk.
+ * Photos are archived to Firebase for the long term. Local disk cleanup is no
+ * longer tied to a 15-minute guest promise; keep this helper for ops scripts.
  */
 export async function purgeExpiredSessions(now = Date.now()) {
   const root = sessionsRoot();
@@ -257,8 +257,6 @@ async function isExpiredSessionDirectory(directory: string, now: number) {
     ) as ImageSession;
     return Date.parse(metadata.expiresAt) <= now;
   } catch {
-    // Unreadable metadata usually means a capture that is still being written,
-    // so only reap it once it is far too old to be one.
     const info = await stat(directory).catch(() => null);
     return info ? now - info.mtimeMs > SESSION_TTL_MS : false;
   }
@@ -281,5 +279,12 @@ export function publicSession(session: ImageSession) {
         ? "無法完成這次創作，請回到拍照裝置後再試一次。"
         : null,
     generationOptions: session.generationOptions ?? null,
+    identity: session.identity
+      ? {
+          kind: session.identity.kind,
+          value: session.identity.value,
+          claimedAt: session.identity.claimedAt,
+        }
+      : null,
   };
 }

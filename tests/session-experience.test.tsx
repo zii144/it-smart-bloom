@@ -149,7 +149,7 @@ describe("SessionExperience — guest journey", () => {
     expect(download.getAttribute("href")).toBe(
       `/api/sessions/${SESSION_ID}/image?kind=result&download=1`,
     );
-    expect(screen.getByText("此連結將於 15 分鐘後失效")).toBeDefined();
+    expect(screen.getByText(/請先留下身分/)).toBeDefined();
   });
 
   it("offers a retry when the render failed", async () => {
@@ -171,15 +171,15 @@ describe("SessionExperience — guest journey", () => {
     ).toBeDefined();
   });
 
-  it("explains an expired link instead of spinning forever", async () => {
+  it("explains a missing link instead of spinning forever", async () => {
     mockFetch({
       status: () => sessionPayload(),
-      statusError: { status: 410, error: "這個人像創作連結已經失效。" },
+      statusError: { status: 404, error: "找不到這個創作空間。" },
     });
 
     render(<SessionExperience id={SESSION_ID} tuningEnabled={false} />);
 
-    expect(await screen.findByText("這個人像創作連結已經失效。")).toBeDefined();
+    expect(await screen.findByText("找不到這個創作空間。")).toBeDefined();
   });
 
   it("hides the dev tuning affordances from guests", async () => {
@@ -376,17 +376,17 @@ describe("SessionExperience — connectivity", () => {
     );
   });
 
-  it("still treats an expired link as final", async () => {
+  it("still treats a missing link as final", async () => {
     mockFetch({
       status: () => sessionPayload(),
-      statusError: { status: 410, error: "這個人像創作連結已經失效。" },
+      statusError: { status: 404, error: "找不到這個創作空間。" },
     });
 
     render(<SessionExperience id={SESSION_ID} tuningEnabled={false} />);
     await vi.advanceTimersByTimeAsync(6_000);
 
     await waitFor(() =>
-      expect(screen.getByText("這個人像創作連結已經失效。")).toBeDefined(),
+      expect(screen.getByText("找不到這個創作空間。")).toBeDefined(),
     );
   });
 });

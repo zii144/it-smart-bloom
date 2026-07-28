@@ -5,11 +5,12 @@ import {
   parseImageOverrides,
   resolveImageOptions,
 } from "@/lib/image-options";
+import { archiveSessionCreated } from "@/lib/portrait-archive";
 import { isImageTuningEnabled } from "@/lib/runtime-env";
 import {
   createSession,
   publicSession,
-  purgeExpiredSessions,
+  readInputImage,
   SessionError,
 } from "@/lib/sessions";
 
@@ -44,14 +45,14 @@ export async function POST(request: Request) {
 
     const session = await createSession(image, generationOptions);
 
-    // Every capture sweeps the previous guests' expired photos off disk. A
-    // booth always takes another photo, so this is the one path guaranteed to
-    // run often enough to keep the 15-minute deletion promise.
+    // Mirror the capture into Firestore/Storage for long-term developer lookup.
+    // Identity is filled in later from the phone claim form.
     after(async () => {
       try {
-        await purgeExpiredSessions();
+        const input = await readInputImage(session.id);
+        await archiveSessionCreated(session, input);
       } catch (error) {
-        console.error("Failed to purge expired sessions:", error);
+        console.error("Failed to archive session:", error);
       }
     });
 
