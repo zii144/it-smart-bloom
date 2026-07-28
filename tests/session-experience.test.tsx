@@ -132,7 +132,7 @@ describe("SessionExperience — guest journey", () => {
     ).toBeDefined();
   });
 
-  it("shows the finished portrait with a download link", async () => {
+  it("shows the finished portrait with download and Facebook share", async () => {
     mockFetch({
       status: () =>
         sessionPayload({
@@ -149,6 +149,9 @@ describe("SessionExperience — guest journey", () => {
     expect(download.getAttribute("href")).toBe(
       `/api/sessions/${SESSION_ID}/image?kind=result&download=1`,
     );
+    expect(
+      screen.getByRole("button", { name: "分享到臉書" }),
+    ).toBeDefined();
     expect(screen.getByText(/請先留下身分/)).toBeDefined();
   });
 

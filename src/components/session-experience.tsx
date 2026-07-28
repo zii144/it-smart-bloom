@@ -4,7 +4,22 @@ import Image from "next/image";
 import { useCallback, useEffect, useState } from "react";
 import { BloomMark } from "@/components/brand";
 import { DevImageSettingsModal } from "@/components/dev-image-settings-modal";
+import {
+  FACEBOOK_SHARE_QUOTE,
+  buildFacebookShareUrl,
+} from "@/lib/facebook-share";
 import type { ImageGenerationOptions } from "@/lib/image-options";
+
+function FacebookIcon() {
+  return (
+    <svg viewBox="0 0 24 24" aria-hidden="true">
+      <path
+        fill="currentColor"
+        d="M22 12.07C22 6.48 17.52 2 11.93 2S1.86 6.48 1.86 12.07c0 5.02 3.66 9.18 8.44 9.93v-7.03H7.9v-2.9h2.4V9.84c0-2.37 1.4-3.68 3.55-3.68 1.03 0 2.1.18 2.1.18v2.32h-1.18c-1.17 0-1.53.73-1.53 1.48v1.78h2.61l-.42 2.9h-2.19V22c4.78-.75 8.44-4.91 8.44-9.93Z"
+      />
+    </svg>
+  );
+}
 
 type SessionStatus = {
   id: string;
@@ -458,13 +473,32 @@ export function SessionExperience({
                 sizes="(max-width: 620px) 92vw, 520px"
               />
             </div>
-            <a
-              className="primary-button mobile-download"
-              href={`${session.resultUrl}&download=1`}
-              download="zhisheng-bloom-portrait.jpg"
-            >
-              下載我的專屬人像
-            </a>
+            <div className="mobile-result-actions">
+              <a
+                className="primary-button mobile-download"
+                href={`${session.resultUrl}&download=1`}
+                download="zhisheng-bloom-portrait.jpg"
+              >
+                下載我的專屬人像
+              </a>
+              <button
+                type="button"
+                className="facebook-share-button"
+                onClick={() => {
+                  window.open(
+                    buildFacebookShareUrl(
+                      window.location.origin,
+                      FACEBOOK_SHARE_QUOTE,
+                    ),
+                    "_blank",
+                    "noopener,noreferrer",
+                  );
+                }}
+              >
+                <FacebookIcon />
+                分享到臉書
+              </button>
+            </div>
 
             {!session.identity ? (
               <form
