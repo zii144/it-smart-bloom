@@ -136,14 +136,12 @@ export function CameraBooth({
         const next = (await response.json()) as SessionPayload;
         setSession((current) => (current ? { ...current, ...next } : current));
 
-        if (next.status === "complete") {
-          // The portrait lives on the guest's phone. Showing it here only
-          // delays the next capture, so return the booth to a clean home.
-          window.location.assign("/");
-          return;
-        } else if (next.status === "failed") {
+        if (next.status === "failed") {
           setError(next.error || "人像生成失敗，請再試一次。");
         }
+        // Stay on the QR screen after complete so the guest can still scan /
+        // open LINE. Fake generate finishes in ~1s; auto-returning home was
+        // wiping the link before demos (and fast real renders) could finish.
       } catch {
         // A transient polling failure should not interrupt the session.
       }
@@ -477,10 +475,15 @@ export function CameraBooth({
               <>
                 <div className="share-copy">
                   <p className="eyebrow">接續在手機上體驗</p>
-                  <h1>掃描，或用 LINE 接收。</h1>
+                  <h1>
+                    {session.status === "complete"
+                      ? "請用手機開啟連結。"
+                      : "掃描，或用 LINE 接收。"}
+                  </h1>
                   <p>
-                    開啟手機相機掃描 QR Code，或點下方按鈕透過 LINE
-                    接收私人連結。進入頁面後，我們就會開始創作你的路老師似顏繪。
+                    {session.status === "complete"
+                      ? "人像已在手機頁面就緒：可下載、分享到臉書，並留下身分。攤位保留 QR，方便尚未掃碼的訪客。"
+                      : "開啟手機相機掃描 QR Code，或點下方按鈕透過 LINE 接收私人連結。進入頁面後，我們就會開始創作你的路老師似顏繪。"}
                   </p>
                   <div className="live-status">
                     <span
@@ -488,9 +491,13 @@ export function CameraBooth({
                         session.status === "generating" ? "pulse-dot" : ""
                       }
                     />
-                    {session.status === "generating"
-                      ? "正在創作你的路老師似顏繪"
-                      : "等待手機開啟連結"}
+                    {session.status === "complete"
+                      ? "手機端人像已完成・QR 仍可掃描"
+                      : session.status === "generating"
+                        ? "正在創作你的路老師似顏繪"
+                        : session.status === "failed"
+                          ? "創作失敗・請重新開始"
+                          : "等待手機開啟連結"}
                   </div>
                 </div>
                 <div className="share-actions">
@@ -519,9 +526,15 @@ export function CameraBooth({
                   </a>
                 </div>
                 {error && <p className="error-message">{error}</p>}
-                <button className="text-button" onClick={startOver}>
-                  重新開始
-                </button>
+                {session.status === "complete" ? (
+                  <button className="primary-button" onClick={startOver}>
+                    下一組訪客
+                  </button>
+                ) : (
+                  <button className="text-button" onClick={startOver}>
+                    重新開始
+                  </button>
+                )}
               </>
             )}
           </div>
