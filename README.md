@@ -47,6 +47,18 @@ npm run dev
 Use `npm run dev:next` only if you need Next without emulators.
 Never set `FIRESTORE_EMULATOR_HOST` / `FIREBASE_STORAGE_EMULATOR_HOST` on Vercel.
 
+### Admin dashboard (ops)
+
+Hidden route: [http://localhost:3059/admin30910](http://localhost:3059/admin30910)
+
+Set a server-only secret (required; the page 404s when unset):
+
+```dotenv
+ADMIN_DASHBOARD_SECRET=choose-a-long-random-string
+```
+
+Sign in with the password form, `?key=…` (exchanged for an httpOnly cookie), or HTTP Basic user `admin`. Shows Firebase/emulator health plus recent Firestore archive and local disk sessions.
+
 ## Testing QR codes on another device
 
 A phone cannot reach `localhost` on the booth computer. Either:

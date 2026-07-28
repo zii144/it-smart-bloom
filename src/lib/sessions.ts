@@ -219,6 +219,43 @@ export async function readResultImage(id: string) {
   }
 }
 
+export function sessionsDataDir() {
+  return sessionsRoot();
+}
+
+export async function listLocalSessions({ limit = 50 }: { limit?: number } = {}) {
+  const root = sessionsRoot();
+  const capped = Math.min(Math.max(limit, 1), 200);
+
+  let entries;
+  try {
+    entries = await readdir(root, { withFileTypes: true });
+  } catch {
+    return [] as ImageSession[];
+  }
+
+  const sessions: ImageSession[] = [];
+
+  await Promise.all(
+    entries.map(async (entry) => {
+      if (!entry.isDirectory() || !SESSION_ID_PATTERN.test(entry.name)) return;
+      try {
+        const raw = await readFile(
+          path.join(root, entry.name, "session.json"),
+          "utf8",
+        );
+        const session = JSON.parse(raw) as ImageSession;
+        if (session?.id) sessions.push(session);
+      } catch {
+        // skip corrupt dirs
+      }
+    }),
+  );
+
+  sessions.sort((a, b) => Date.parse(b.createdAt) - Date.parse(a.createdAt));
+  return sessions.slice(0, capped);
+}
+
 /**
  * Photos are archived to Firebase for the long term. Local disk cleanup is no
  * longer tied to a 15-minute guest promise; keep this helper for ops scripts.
