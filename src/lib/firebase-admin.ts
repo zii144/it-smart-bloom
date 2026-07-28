@@ -5,6 +5,7 @@ import { getStorage, type Storage } from "firebase-admin/storage";
 import { firebasePublicConfig } from "@/lib/firebase-public-config";
 
 let app: App | null = null;
+let loggedTarget = false;
 
 function loadServiceAccount() {
   const inline = process.env.FIREBASE_SERVICE_ACCOUNT?.trim();
@@ -20,6 +21,33 @@ function loadServiceAccount() {
   return null;
 }
 
+/**
+ * Admin SDKs auto-route to local emulators when these hosts are set
+ * (no `http://` prefix). Never set them on Vercel.
+ */
+export function isFirebaseEmulator() {
+  return Boolean(
+    process.env.FIRESTORE_EMULATOR_HOST?.trim() ||
+      process.env.FIREBASE_STORAGE_EMULATOR_HOST?.trim(),
+  );
+}
+
+function logFirebaseTarget(projectId: string) {
+  if (loggedTarget) return;
+  loggedTarget = true;
+
+  if (isFirebaseEmulator()) {
+    console.info(
+      `[firebase] using emulators for ${projectId}`,
+      `(firestore=${process.env.FIRESTORE_EMULATOR_HOST ?? "off"}`,
+      `storage=${process.env.FIREBASE_STORAGE_EMULATOR_HOST ?? "off"})`,
+    );
+    return;
+  }
+
+  console.info(`[firebase] using live project ${projectId}`);
+}
+
 /** Returns null when Firebase is not configured so local/tests stay offline-friendly. */
 export function getFirebaseApp() {
   if (app) return app;
@@ -30,18 +58,27 @@ export function getFirebaseApp() {
 
   const projectId =
     process.env.FIREBASE_PROJECT_ID?.trim() || firebasePublicConfig.projectId;
+  const storageBucket =
+    process.env.FIREBASE_STORAGE_BUCKET?.trim() ||
+    firebasePublicConfig.storageBucket;
+  const emulator = isFirebaseEmulator();
   const serviceAccount = loadServiceAccount();
-  if (!projectId || !serviceAccount) {
+
+  // Emulators only need a project id. Live Cloud needs a real service account.
+  if (!projectId || (!emulator && !serviceAccount)) {
     return null;
   }
 
-  app = initializeApp({
-    credential: cert(serviceAccount),
-    projectId,
-    storageBucket:
-      process.env.FIREBASE_STORAGE_BUCKET?.trim() ||
-      firebasePublicConfig.storageBucket,
-  });
+  app = initializeApp(
+    emulator
+      ? { projectId, storageBucket }
+      : {
+          credential: cert(serviceAccount!),
+          projectId,
+          storageBucket,
+        },
+  );
+  logFirebaseTarget(projectId);
   return app;
 }
 

@@ -46,6 +46,14 @@ next-env.d.ts
 # Firebase admin keys (never commit)
 .secrets/
 firebase-debug.log
+firebase-debug.*.log
+firestore-debug.log
+ui-debug.log
+storage-debug.log
+*-debug.log
+
+# Local Firebase emulator exports
+.emulator-data/
 
 # Cursor local IDE settings
 .cursor/
