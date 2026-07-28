@@ -2392,6 +2392,72 @@ button {
   border-color: rgba(36, 61, 55, 0.45);
 }
 
+.identity-form,
+.identity-claimed {
+  width: min(100%, 360px);
+  margin-top: 22px;
+  display: grid;
+  gap: 12px;
+  text-align: left;
+}
+
+.identity-form-title {
+  margin: 0;
+  font-size: 15px;
+  font-weight: 800;
+  color: var(--ink);
+}
+
+.identity-form-hint,
+.identity-claimed-label,
+.avatar-message {
+  margin: 0;
+  font-size: 13px;
+  line-height: 1.55;
+  color: var(--ink-soft);
+}
+
+.identity-field {
+  display: grid;
+  gap: 6px;
+  font-size: 12px;
+  font-weight: 700;
+  color: var(--ink-soft);
+}
+
+.identity-field input {
+  width: 100%;
+  padding: 12px 14px;
+  border: 1px solid rgba(36, 61, 55, 0.18);
+  border-radius: 14px;
+  background: rgba(255, 252, 246, 0.92);
+  color: var(--ink);
+  font: inherit;
+  font-size: 15px;
+  font-weight: 600;
+}
+
+.identity-field input:disabled {
+  opacity: 0.55;
+}
+
+.identity-or {
+  margin: 0;
+  text-align: center;
+  font-size: 12px;
+  font-weight: 700;
+  color: var(--coral-dark);
+}
+
+.identity-submit,
+.avatar-button {
+  width: 100%;
+}
+
+.avatar-button {
+  margin-top: 4px;
+}
+
 @media (prefers-reduced-motion: reduce) {
   *,
   *::before,

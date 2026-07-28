@@ -10,7 +10,6 @@ import {
   readInputImage,
   readResultImage,
   SESSION_TTL_MS,
-  SessionError,
   updateSession,
   writeResultImage,
 } from "@/lib/sessions";
@@ -117,19 +116,11 @@ describe("getSession", () => {
     },
   );
 
-  it("410s once the session has expired", async () => {
+  it("still serves a session after the old TTL stamp has passed", async () => {
     const created = await createSession(imageFile());
     await patchMetadata(created.id, { expiresAt: expiredAt() });
 
-    await expect(getSession(created.id)).rejects.toBeInstanceOf(SessionError);
-    await expect(getSession(created.id)).rejects.toMatchObject({ status: 410 });
-  });
-
-  it("can still read an expired session when explicitly allowed", async () => {
-    const created = await createSession(imageFile());
-    await patchMetadata(created.id, { expiresAt: expiredAt() });
-
-    expect(await getSession(created.id, true)).toMatchObject({
+    await expect(getSession(created.id)).resolves.toMatchObject({
       id: created.id,
     });
   });
@@ -193,7 +184,7 @@ describe("writeResultImage / readResultImage", () => {
 });
 
 describe("purgeExpiredSessions", () => {
-  it("deletes the photos of expired sessions, as both screens promise", async () => {
+  it("can still delete photos marked past the old TTL for ops cleanup", async () => {
     const stale = await createSession(imageFile());
     await writeResultImage(stale.id, jpegBytes(), "image/jpeg");
     await patchMetadata(stale.id, { expiresAt: expiredAt() });
@@ -203,8 +194,7 @@ describe("purgeExpiredSessions", () => {
     const removed = await purgeExpiredSessions();
 
     expect(removed).toBeGreaterThanOrEqual(1);
-    // Even with expiry checks bypassed, nothing is left to read.
-    await expect(getSession(stale.id, true)).rejects.toMatchObject({
+    await expect(getSession(stale.id)).rejects.toMatchObject({
       status: 404,
     });
     expect((await getSession(live.id)).id).toBe(live.id);
@@ -213,7 +203,7 @@ describe("purgeExpiredSessions", () => {
   it("leaves live sessions untouched", async () => {
     const live = await createSession(imageFile());
 
-    await purgeExpiredSessions();
+    await purgeExpiredSessions(Date.now() - SESSION_TTL_MS);
 
     expect((await getSession(live.id)).id).toBe(live.id);
     expect((await readInputImage(live.id)).bytes.length).toBeGreaterThan(0);
@@ -293,6 +283,7 @@ describe("publicSession", () => {
       "expiresAt",
       "generationOptions",
       "id",
+      "identity",
       "inputUrl",
       "resultUrl",
       "startedAt",

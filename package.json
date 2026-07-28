@@ -12,6 +12,7 @@
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {
+    "firebase-admin": "^14.2.0",
     "next": "16.2.12",
     "openai": "^6.49.0",
     "qrcode": "^1.5.4",

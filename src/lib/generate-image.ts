@@ -4,6 +4,7 @@ import {
   resolveImageOptions,
   type ImageGenerationOverrides,
 } from "@/lib/image-options";
+import { archiveSessionStatus } from "@/lib/portrait-archive";
 import { isImageTuningEnabled } from "@/lib/runtime-env";
 import {
   getSession,
@@ -30,19 +31,29 @@ function openaiCredentials() {
   return { apiKey, prompt };
 }
 
-function markGenerating(id: string) {
-  return updateSession(id, {
+async function markGenerating(id: string) {
+  const session = await updateSession(id, {
     status: "generating",
     error: undefined,
     generationStartedAt: new Date().toISOString(),
   });
+  await archiveSessionStatus(session).catch((error) => {
+    console.error(`Failed to archive generating status for ${id}:`, error);
+  });
+  return session;
 }
 
 async function performFakeGeneration(id: string) {
   await markGenerating(id);
   await new Promise((resolve) => setTimeout(resolve, FAKE_GENERATE_DELAY_MS));
   const input = await readInputImage(id);
-  await writeResultImage(id, input.bytes, input.mime);
+  const finished = await writeResultImage(id, input.bytes, input.mime);
+  await archiveSessionStatus(finished, {
+    bytes: input.bytes,
+    mime: input.mime,
+  }).catch((error) => {
+    console.error(`Failed to archive fake result for ${id}:`, error);
+  });
 }
 
 async function performGeneration(
@@ -99,16 +110,20 @@ async function performGeneration(
       throw new Error("OpenAI 未回傳圖片資料。");
     }
 
-    await writeResultImage(
-      id,
-      Buffer.from(encoded, "base64"),
-      mimeForOutputFormat(settings.outputFormat),
-    );
+    const bytes = Buffer.from(encoded, "base64");
+    const mime = mimeForOutputFormat(settings.outputFormat);
+    const finished = await writeResultImage(id, bytes, mime);
+    await archiveSessionStatus(finished, { bytes, mime }).catch((error) => {
+      console.error(`Failed to archive result for ${id}:`, error);
+    });
   } catch (error) {
     const message =
       error instanceof Error ? error.message : "Unknown generation error";
     console.error(`Image generation failed for ${id}:`, error);
-    await updateSession(id, { status: "failed", error: message });
+    const failed = await updateSession(id, { status: "failed", error: message });
+    await archiveSessionStatus(failed).catch((archiveError) => {
+      console.error(`Failed to archive failure for ${id}:`, archiveError);
+    });
     throw error;
   }
 }

@@ -95,7 +95,7 @@ describe("GET /api/sessions/[id]", () => {
     expect(response.status).toBe(404);
   });
 
-  it("410s an expired session", async () => {
+  it("still returns a session after the old TTL stamp has passed", async () => {
     const session = await createSession(imageFile());
     await patchMetadata(session.id, { expiresAt: expiredAt() });
 
@@ -103,7 +103,7 @@ describe("GET /api/sessions/[id]", () => {
       new Request("http://phone.local"),
       routeContext(session.id),
     );
-    expect(response.status).toBe(410);
+    expect(response.status).toBe(200);
   });
 });
 
@@ -211,7 +211,7 @@ describe("POST /api/sessions/[id]/generate", () => {
     expect(generateImageMock).toHaveBeenCalledWith(session.id, null, false);
   });
 
-  it("410s an expired session", async () => {
+  it("still generates after the old TTL stamp has passed", async () => {
     const session = await createSession(imageFile());
     await patchMetadata(session.id, { expiresAt: expiredAt() });
 
@@ -219,7 +219,7 @@ describe("POST /api/sessions/[id]/generate", () => {
       generateRequest(),
       routeContext(session.id),
     );
-    expect(response.status).toBe(410);
+    expect(response.status).toBe(200);
   });
 
   it.each([
@@ -324,7 +324,7 @@ describe("GET /api/sessions/[id]/image", () => {
     expect(response.status).toBe(400);
   });
 
-  it("410s an expired session instead of leaking the photo", async () => {
+  it("still serves the photo after the old TTL stamp has passed", async () => {
     const session = await createSession(imageFile());
     await patchMetadata(session.id, { expiresAt: expiredAt() });
 
@@ -332,7 +332,7 @@ describe("GET /api/sessions/[id]/image", () => {
       imageRequest("input"),
       routeContext(session.id),
     );
-    expect(response.status).toBe(410);
+    expect(response.status).toBe(200);
   });
 
   it("404s a traversal attempt in the id", async () => {

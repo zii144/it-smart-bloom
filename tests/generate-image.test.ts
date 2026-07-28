@@ -176,16 +176,14 @@ describe("generateImage — failures", () => {
     );
   });
 
-  it("refuses to render an expired session", async () => {
+  it("still renders a session after the old TTL stamp has passed", async () => {
     const session = await createSession(imageFile());
     await patchMetadata(session.id, {
       expiresAt: new Date(Date.now() - 1000).toISOString(),
     });
 
-    await expect(generateImage(session.id)).rejects.toMatchObject({
-      status: 410,
-    });
-    expect(editMock).not.toHaveBeenCalled();
+    await generateImage(session.id);
+    expect((await getSession(session.id)).status).toBe("complete");
   });
 });
 

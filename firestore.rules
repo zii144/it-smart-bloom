@@ -1,0 +1,10 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    // Guests never talk to Firestore from the browser.
+    // Only the Next.js Admin SDK writes session + identity records.
+    match /{document=**} {
+      allow read, write: if false;
+    }
+  }
+}
