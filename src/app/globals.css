@@ -615,10 +615,6 @@ button {
   background-image: url("/images/watercolor/sunny-road.jpg");
 }
 
-.booth-stage-result::before {
-  opacity: 0.12;
-  background-image: url("/images/watercolor/peony.jpg");
-}
 
 .intro-grid {
   display: grid;
@@ -1160,8 +1156,7 @@ button {
 }
 
 .capture-layout,
-.review-layout,
-.result-layout {
+.review-layout {
   display: flex;
   align-items: center;
   flex-direction: column;
@@ -1191,8 +1186,7 @@ button {
 }
 
 .camera-card,
-.review-image,
-.result-image {
+.review-image {
   position: relative;
   overflow: hidden;
   border: 10px solid rgba(255, 253, 247, 0.8);
@@ -1300,14 +1294,12 @@ button {
 }
 
 .review-image img,
-.result-image img,
 .mobile-result img,
 .source-photo-wrap img {
   object-fit: cover;
 }
 
-.review-actions,
-.result-actions {
+.review-actions {
   display: flex;
   gap: 12px;
   margin-top: 28px;
@@ -1472,11 +1464,6 @@ button {
   font-size: clamp(52px, 6vw, 78px);
 }
 
-.result-image {
-  width: min(54vh, 560px, 80vw);
-  aspect-ratio: 1;
-  border-radius: 40px;
-}
 
 .mobile-shell {
   display: flex;
@@ -1655,8 +1642,7 @@ button {
   transition: width 0.9s cubic-bezier(0.22, 0.61, 0.36, 1);
 }
 
-.progress-label,
-.expiry-copy {
+.progress-label {
   color: var(--ink-soft);
   font-size: 11px;
   font-weight: 700;
@@ -1740,10 +1726,6 @@ button {
   margin: 26px auto 0;
 }
 
-.expiry-copy {
-  margin: 15px 0 0;
-  text-align: center;
-}
 
 .mobile-error {
   max-width: 480px;
@@ -1911,14 +1893,12 @@ button {
     font-size: clamp(45px, 13vw, 62px);
   }
 
-  .review-actions,
-  .result-actions {
+  .review-actions {
     width: 100%;
     flex-direction: column-reverse;
   }
 
-  .review-actions > *,
-  .result-actions > * {
+  .review-actions > * {
     width: 100%;
   }
 
@@ -1951,9 +1931,6 @@ button {
     margin: 0;
   }
 
-  .result-image {
-    width: min(88vw, 500px);
-  }
 }
 
 @media (max-width: 700px) {
