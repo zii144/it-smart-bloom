@@ -23,7 +23,7 @@ type SessionPayload = {
   qrDataUrl: string;
 };
 
-type BoothStep = "intro" | "camera" | "preview" | "sharing" | "result";
+type BoothStep = "intro" | "camera" | "preview" | "sharing";
 
 function CameraIcon() {
   return (
@@ -137,7 +137,10 @@ export function CameraBooth({
         setSession((current) => (current ? { ...current, ...next } : current));
 
         if (next.status === "complete") {
-          setStep("result");
+          // The portrait lives on the guest's phone. Showing it here only
+          // delays the next capture, so return the booth to a clean home.
+          window.location.assign("/");
+          return;
         } else if (next.status === "failed") {
           setError(next.error || "人像生成失敗，請再試一次。");
         }
@@ -273,14 +276,9 @@ export function CameraBooth({
   }
 
   function startOver() {
-    setPhoto(null);
-    setSession(null);
-    setError(null);
-    setShowSettings(false);
-    setTuningOptions(null);
-    if (previewUrl) URL.revokeObjectURL(previewUrl);
-    setPreviewUrl(null);
-    setStep("intro");
+    // Full navigation clears camera streams and session state so the next
+    // guest always starts from a fresh booth.
+    window.location.assign("/");
   }
 
   return (
@@ -292,7 +290,7 @@ export function CameraBooth({
         <BloomMark />
         <div className="privacy-note">
           <span className="privacy-dot" />
-          照片將於 15 分鐘後刪除
+          私人創作空間
         </div>
       </header>
 
@@ -439,7 +437,7 @@ export function CameraBooth({
             <div className="stage-heading">
               <p className="eyebrow">很好看</p>
               <h1>就選這張嗎？</h1>
-              <p>照片會保持私密，並於 15 分鐘後自動刪除。</p>
+              <p>確認後會產生私人手機連結，人像會保存於路老師系統。</p>
             </div>
             <div className="review-image">
               <Image
@@ -505,13 +503,13 @@ export function CameraBooth({
                       unoptimized
                       loading="eager"
                     />
-                    <p>私人連結・15 分鐘後失效</p>
+                    <p>私人連結・請用手機開啟</p>
                   </div>
                   <a
                     className="line-receive-button"
                     href={buildLineShareUrl(
                       session.sessionUrl,
-                      "開啟你的路老師似顏繪（私人連結，15 分鐘內有效）",
+                      "開啟你的路老師似顏繪（私人連結）",
                     )}
                     target="_blank"
                     rel="noopener noreferrer"
@@ -526,37 +524,6 @@ export function CameraBooth({
                 </button>
               </>
             )}
-          </div>
-        )}
-
-        {step === "result" && session?.resultUrl && (
-          <div className="result-layout">
-            <div className="stage-heading">
-              <p className="eyebrow">路老師似顏繪</p>
-              <h1>一路走來的光，已然綻放。</h1>
-            </div>
-            <div className="result-image">
-              <Image
-                src={session.resultUrl}
-                alt="你的智晟｜綻放 AI 藝術人像"
-                fill
-                unoptimized
-                preload
-                sizes="(max-width: 700px) 88vw, 560px"
-              />
-            </div>
-            <div className="result-actions">
-              <a
-                className="primary-button"
-                href={`${session.resultUrl}&download=1`}
-                download="zhisheng-bloom-portrait.jpg"
-              >
-                下載專屬人像
-              </a>
-              <button className="secondary-button" onClick={startOver}>
-                再創作一張
-              </button>
-            </div>
           </div>
         )}
       </section>
