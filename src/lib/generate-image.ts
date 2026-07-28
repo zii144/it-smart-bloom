@@ -1,5 +1,10 @@
 import OpenAI, { toFile } from "openai";
 import {
+  mimeForOutputFormat,
+  resolveImageOptions,
+  type ImageGenerationOverrides,
+} from "@/lib/image-options";
+import {
   getSession,
   readInputImage,
   updateSession,
@@ -8,7 +13,7 @@ import {
 
 const activeGenerations = new Map<string, Promise<void>>();
 
-function imageSettings() {
+function openaiCredentials() {
   const apiKey = process.env.OPENAI_API_KEY?.trim();
   const prompt = process.env.OPENAI_IMAGE_SYSTEM_PROMPT?.trim();
 
@@ -20,32 +25,26 @@ function imageSettings() {
     throw new Error("尚未設定 OPENAI_IMAGE_SYSTEM_PROMPT。");
   }
 
-  const quality = process.env.OPENAI_IMAGE_QUALITY ?? "medium";
-  if (!["low", "medium", "high", "auto"].includes(quality)) {
-    throw new Error("OPENAI_IMAGE_QUALITY 必須是 low、medium、high 或 auto。");
-  }
-
-  return {
-    apiKey,
-    prompt,
-    model: process.env.OPENAI_IMAGE_MODEL?.trim() || "gpt-image-2",
-    quality: quality as "low" | "medium" | "high" | "auto",
-    size: process.env.OPENAI_IMAGE_SIZE?.trim() || "1024x1024",
-  };
+  return { apiKey, prompt };
 }
 
-async function performGeneration(id: string) {
+async function performGeneration(
+  id: string,
+  overrides?: ImageGenerationOverrides | null,
+  force = false,
+) {
   const session = await getSession(id);
-  if (session.status === "complete") {
+  if (session.status === "complete" && !force) {
     return;
   }
 
   await updateSession(id, { status: "generating", error: undefined });
 
   try {
-    const settings = imageSettings();
+    const credentials = openaiCredentials();
+    const settings = resolveImageOptions(overrides);
     const input = await readInputImage(id);
-    const client = new OpenAI({ apiKey: settings.apiKey });
+    const client = new OpenAI({ apiKey: credentials.apiKey });
     const extension =
       input.mime === "image/png"
         ? "png"
@@ -58,11 +57,14 @@ async function performGeneration(id: string) {
       image: await toFile(input.bytes, `portrait.${extension}`, {
         type: input.mime,
       }),
-      prompt: settings.prompt,
+      prompt: credentials.prompt,
       quality: settings.quality,
       size: settings.size,
-      output_format: "jpeg",
-      output_compression: 90,
+      output_format: settings.outputFormat,
+      output_compression:
+        settings.outputFormat === "png"
+          ? undefined
+          : settings.outputCompression,
       n: 1,
     });
 
@@ -71,7 +73,11 @@ async function performGeneration(id: string) {
       throw new Error("OpenAI 未回傳圖片資料。");
     }
 
-    await writeResultImage(id, Buffer.from(encoded, "base64"), "image/jpeg");
+    await writeResultImage(
+      id,
+      Buffer.from(encoded, "base64"),
+      mimeForOutputFormat(settings.outputFormat),
+    );
   } catch (error) {
     const message =
       error instanceof Error ? error.message : "Unknown generation error";
@@ -81,14 +87,20 @@ async function performGeneration(id: string) {
   }
 }
 
-export function generateImage(id: string) {
+export function generateImage(
+  id: string,
+  overrides?: ImageGenerationOverrides | null,
+  force = false,
+) {
   const existing = activeGenerations.get(id);
-  if (existing) {
+  if (existing && !force) {
     return existing;
   }
 
-  const generation = performGeneration(id).finally(() => {
-    activeGenerations.delete(id);
+  const generation = performGeneration(id, overrides, force).finally(() => {
+    if (activeGenerations.get(id) === generation) {
+      activeGenerations.delete(id);
+    }
   });
   activeGenerations.set(id, generation);
   return generation;
