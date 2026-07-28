@@ -1720,10 +1720,47 @@ button {
   box-shadow: 0 25px 65px rgba(24, 55, 43, 0.2);
 }
 
-.mobile-download {
-  display: flex;
+.mobile-result-actions {
+  display: grid;
+  gap: 12px;
   width: min(390px, 88vw);
   margin: 26px auto 0;
+}
+
+.mobile-download {
+  display: flex;
+  width: 100%;
+  margin: 0;
+}
+
+.facebook-share-button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
+  min-height: 52px;
+  width: 100%;
+  padding: 0 20px;
+  border: none;
+  border-radius: 999px;
+  background: #1877f2;
+  color: #fff;
+  font-size: 15px;
+  font-weight: 700;
+  text-decoration: none;
+  cursor: pointer;
+  box-shadow: 0 12px 28px rgba(24, 119, 242, 0.28);
+  transition: transform 160ms ease, filter 160ms ease;
+}
+
+.facebook-share-button svg {
+  width: 20px;
+  height: 20px;
+}
+
+.facebook-share-button:hover {
+  transform: translateY(-1px);
+  filter: brightness(1.03);
 }
 
 
@@ -2166,7 +2203,7 @@ button {
   }
 
   .mobile-result,
-  .mobile-download {
+  .mobile-result-actions {
     width: 92vw;
   }
 
@@ -2175,7 +2212,7 @@ button {
     border-radius: 24px;
   }
 
-  .mobile-download {
+  .mobile-result-actions {
     margin-top: 20px;
   }
 
