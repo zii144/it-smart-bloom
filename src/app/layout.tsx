@@ -23,8 +23,8 @@ export default function RootLayout({
   children: React.ReactNode;
 }>) {
   return (
-    <html lang="zh-Hant-TW">
-      <body>
+    <html lang="zh-Hant-TW" suppressHydrationWarning>
+      <body suppressHydrationWarning>
         {children}
         <FlowerRain />
       </body>

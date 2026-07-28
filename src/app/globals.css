@@ -540,25 +540,10 @@ button {
 .brand-mark {
   width: 40px;
   height: 40px;
-  overflow: visible;
+  flex: 0 0 auto;
+  border-radius: 50%;
+  object-fit: cover;
   filter: drop-shadow(0 4px 7px rgba(185, 84, 69, 0.16));
-}
-
-.brand-petal-wash {
-  fill: url("#bloom-petal-wash");
-  opacity: 0.92;
-}
-
-.brand-petal-bloom {
-  fill: #f7a078;
-  opacity: 0.26;
-  mix-blend-mode: multiply;
-}
-
-.brand-heart-wash {
-  fill: url("#bloom-heart-wash");
-  stroke: rgba(255, 250, 240, 0.75);
-  stroke-width: 0.7;
 }
 
 .brand-name strong {
@@ -1544,6 +1529,7 @@ button {
   display: flex;
   width: min(620px, 100%);
   flex: 1;
+  flex-direction: column;
   align-items: center;
   align-self: center;
   justify-content: center;
@@ -1663,6 +1649,12 @@ button {
   }
 }
 
+.progress-track.is-determinate span {
+  width: 0;
+  animation: none;
+  transition: width 0.9s cubic-bezier(0.22, 0.61, 0.36, 1);
+}
+
 .progress-label,
 .expiry-copy {
   color: var(--ink-soft);
@@ -1670,6 +1662,62 @@ button {
   font-weight: 700;
   letter-spacing: 0.06em;
   text-transform: uppercase;
+}
+
+.progress-label {
+  display: flex;
+  gap: 10px;
+  align-items: center;
+  justify-content: center;
+}
+
+.progress-elapsed {
+  padding: 3px 9px;
+  border-radius: 999px;
+  background: rgba(24, 55, 43, 0.08);
+  color: var(--ink);
+  font-variant-numeric: tabular-nums;
+  letter-spacing: 0.02em;
+}
+
+.noscript-banner {
+  position: relative;
+  z-index: 20;
+  margin: 16px 18px 0;
+  padding: 14px 16px;
+  border: 1px solid rgba(185, 84, 69, 0.35);
+  border-radius: 14px;
+  background: rgba(255, 245, 233, 0.95);
+  color: var(--coral-dark);
+  font-size: 13px;
+  font-weight: 700;
+  line-height: 1.6;
+  text-align: center;
+}
+
+.retry-button {
+  margin-top: 26px;
+  padding: 14px 26px;
+  border: 0;
+  border-radius: 999px;
+  background: var(--coral);
+  color: #fffdf7;
+  font: inherit;
+  font-size: 15px;
+  font-weight: 700;
+  cursor: pointer;
+  transition:
+    transform 0.2s ease,
+    filter 0.2s ease;
+}
+
+.retry-button:hover {
+  transform: translateY(-1px);
+  filter: brightness(1.05);
+}
+
+.retry-button:active {
+  transform: translateY(0);
 }
 
 .mobile-title {

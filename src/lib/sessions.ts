@@ -1,5 +1,13 @@
 import { randomBytes } from "node:crypto";
-import { mkdir, readFile, rename, stat, writeFile } from "node:fs/promises";
+import {
+  mkdir,
+  readdir,
+  readFile,
+  rename,
+  rm,
+  stat,
+  writeFile,
+} from "node:fs/promises";
 import path from "node:path";
 import type { ImageGenerationOptions } from "@/lib/image-options";
 
@@ -23,6 +31,7 @@ export type ImageSession = {
   inputMime: string;
   resultMime?: string;
   error?: string;
+  generationStartedAt?: string;
   generationOptions?: ImageGenerationOptions;
 };
 
@@ -209,11 +218,58 @@ export async function readResultImage(id: string) {
   }
 }
 
+/**
+ * Both the booth and the phone promise the guest that their photo disappears
+ * once the link expires, so something has to actually delete it. A kiosk runs
+ * all day on one machine; without this every face ever captured stays on disk.
+ */
+export async function purgeExpiredSessions(now = Date.now()) {
+  const root = sessionsRoot();
+
+  let entries;
+  try {
+    entries = await readdir(root, { withFileTypes: true });
+  } catch {
+    return 0;
+  }
+
+  let removed = 0;
+
+  await Promise.all(
+    entries.map(async (entry) => {
+      if (!entry.isDirectory() || !SESSION_ID_PATTERN.test(entry.name)) return;
+
+      const directory = path.join(root, entry.name);
+      if (!(await isExpiredSessionDirectory(directory, now))) return;
+
+      await rm(directory, { recursive: true, force: true });
+      removed += 1;
+    }),
+  );
+
+  return removed;
+}
+
+async function isExpiredSessionDirectory(directory: string, now: number) {
+  try {
+    const metadata = JSON.parse(
+      await readFile(path.join(directory, "session.json"), "utf8"),
+    ) as ImageSession;
+    return Date.parse(metadata.expiresAt) <= now;
+  } catch {
+    // Unreadable metadata usually means a capture that is still being written,
+    // so only reap it once it is far too old to be one.
+    const info = await stat(directory).catch(() => null);
+    return info ? now - info.mtimeMs > SESSION_TTL_MS : false;
+  }
+}
+
 export function publicSession(session: ImageSession) {
   return {
     id: session.id,
     status: session.status,
     createdAt: session.createdAt,
+    startedAt: session.generationStartedAt ?? null,
     expiresAt: session.expiresAt,
     inputUrl: `/api/sessions/${session.id}/image?kind=input`,
     resultUrl:
