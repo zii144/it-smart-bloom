@@ -32,13 +32,20 @@ OPENAI_IMAGE_SYSTEM_PROMPT="Your image transformation instructions"
 The remaining values in `.env.example` provide sensible defaults for model,
 quality, output size, and the QR base URL.
 
-Start the app:
+### Firebase Emulator (local only)
+
+`npm run dev` starts the Firestore + Storage emulators and Next.js together.
+Development writes stay in the emulators and do not hit the live project.
 
 ```bash
 npm run dev
 ```
 
-Open [http://localhost:3059](http://localhost:3059).
+- App: [http://localhost:3059](http://localhost:3059)
+- Emulator UI: [http://127.0.0.1:4000](http://127.0.0.1:4000)
+
+Use `npm run dev:next` only if you need Next without emulators.
+Never set `FIRESTORE_EMULATOR_HOST` / `FIREBASE_STORAGE_EMULATOR_HOST` on Vercel.
 
 ## Testing QR codes on another device
 
