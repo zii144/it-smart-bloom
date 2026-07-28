@@ -12,6 +12,8 @@ import {
   type ImageGenerationOptions,
 } from "@/lib/image-options";
 
+export const FAKE_GENERATE_PREF_KEY = "bloom.dev.fakeGenerate";
+
 type DevImageSettingsModalProps = {
   open: boolean;
   initial?: ImageGenerationOptions | null;
@@ -29,6 +31,40 @@ const FALLBACK: ImageGenerationOptions = {
   fakeGenerate: false,
 };
 
+function readFakeGeneratePref(): boolean | null {
+  try {
+    const raw = window.localStorage.getItem(FAKE_GENERATE_PREF_KEY);
+    if (raw === "1" || raw === "true") return true;
+    if (raw === "0" || raw === "false") return false;
+  } catch {
+    // private mode / blocked storage
+  }
+  return null;
+}
+
+function writeFakeGeneratePref(value: boolean) {
+  try {
+    window.localStorage.setItem(FAKE_GENERATE_PREF_KEY, value ? "1" : "0");
+  } catch {
+    // ignore
+  }
+}
+
+function withStickyFakeGenerate(
+  base: ImageGenerationOptions,
+  initial?: ImageGenerationOptions | null,
+): ImageGenerationOptions {
+  // Explicit booth state wins; otherwise restore the last demo preference.
+  if (initial && typeof initial.fakeGenerate === "boolean") {
+    return { ...base, fakeGenerate: initial.fakeGenerate };
+  }
+  const sticky = readFakeGeneratePref();
+  if (sticky !== null) {
+    return { ...base, fakeGenerate: sticky };
+  }
+  return base;
+}
+
 export function DevImageSettingsModal({
   open,
   initial,
@@ -37,8 +73,10 @@ export function DevImageSettingsModal({
   onConfirm,
 }: DevImageSettingsModalProps) {
   const titleId = useId();
-  const [options, setOptions] = useState<ImageGenerationOptions>(
-    initial ?? FALLBACK,
+  const [options, setOptions] = useState<ImageGenerationOptions>(() =>
+    typeof window === "undefined"
+      ? (initial ?? FALLBACK)
+      : withStickyFakeGenerate(initial ?? FALLBACK, initial),
   );
   const [hasApiKey, setHasApiKey] = useState(true);
   const [ready, setReady] = useState(Boolean(initial));
@@ -55,7 +93,7 @@ export function DevImageSettingsModal({
         });
         if (!response.ok) {
           if (active) {
-            setOptions(initial ?? FALLBACK);
+            setOptions(withStickyFakeGenerate(initial ?? FALLBACK, initial));
             setReady(true);
           }
           return;
@@ -66,11 +104,13 @@ export function DevImageSettingsModal({
         };
         if (!active) return;
         setHasApiKey(payload.hasApiKey);
-        setOptions(initial ?? payload.defaults);
+        setOptions(
+          withStickyFakeGenerate(initial ?? payload.defaults, initial),
+        );
         setReady(true);
       } catch {
         if (active) {
-          setOptions(initial ?? FALLBACK);
+          setOptions(withStickyFakeGenerate(initial ?? FALLBACK, initial));
           setReady(true);
         }
       }
@@ -100,9 +140,9 @@ export function DevImageSettingsModal({
           <p>調整模型與品質以控制成本；僅在本地開發與 Vercel Preview 顯示。</p>
         </header>
 
-        {!hasApiKey && (
+        {!hasApiKey && !options.fakeGenerate && (
           <p className="dev-settings-warning">
-            尚未設定 OPENAI_API_KEY，生成會失敗。
+            尚未設定 OPENAI_API_KEY，真生成會失敗。可改勾「假生成」走完整流程。
           </p>
         )}
 
@@ -110,6 +150,7 @@ export function DevImageSettingsModal({
           className="dev-settings-form"
           onSubmit={(event) => {
             event.preventDefault();
+            writeFakeGeneratePref(options.fakeGenerate);
             onConfirm(options);
           }}
         >
@@ -118,22 +159,26 @@ export function DevImageSettingsModal({
               type="checkbox"
               checked={options.fakeGenerate}
               disabled={!ready}
-              onChange={(event) =>
+              onChange={(event) => {
+                const fakeGenerate = event.target.checked;
+                writeFakeGeneratePref(fakeGenerate);
                 setOptions((current) => ({
                   ...current,
-                  fakeGenerate: event.target.checked,
-                }))
-              }
+                  fakeGenerate,
+                }));
+              }}
             />
             <span>
               <strong>假生成 Fake generate</strong>
-              <small>跳過 OpenAI，直接用原圖走完整流程（約 1 秒）</small>
+              <small>
+                跳過 OpenAI，用示範人像走完整流程（約 1 秒，不花費 token）
+              </small>
             </span>
           </label>
 
           {options.fakeGenerate && (
             <p className="dev-settings-fake-note">
-              已啟用流程測試模式：不會呼叫 API，也不會產生費用。
+              流程測試模式：不會呼叫 OpenAI，結果為示範水彩人像；QR、手機認領等後續步驟仍照常。
             </p>
           )}
 
@@ -248,7 +293,7 @@ export function DevImageSettingsModal({
             <strong>本次設定</strong>
             <code>
               {options.fakeGenerate
-                ? "FAKE · 原圖直出 · 流程測試"
+                ? "FAKE · 示範人像 · 流程測試"
                 : `${options.model} · ${options.quality} · ${options.size} · ${options.outputFormat}${
                     options.outputFormat !== "png"
                       ? ` @${options.outputCompression}`

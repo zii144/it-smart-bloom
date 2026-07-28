@@ -3,7 +3,9 @@
   "version": "0.1.0",
   "private": true,
   "scripts": {
-    "dev": "next dev --port 3059",
+    "dev": "node scripts/free-dev-ports.cjs && firebase emulators:exec --project it-smart-bloom-tmp --only firestore,storage --ui \"next dev --port 3059\"",
+    "dev:next": "next dev --port 3059",
+    "emulators": "firebase emulators:start --project it-smart-bloom-tmp --only firestore,storage",
     "build": "next build",
     "start": "next start --port 3059",
     "lint": "eslint",
@@ -31,6 +33,7 @@
     "@vitejs/plugin-react": "^6.0.4",
     "eslint": "^9",
     "eslint-config-next": "16.2.12",
+    "firebase-tools": "^15.24.0",
     "jsdom": "^29.1.1",
     "tailwindcss": "^4",
     "typescript": "^5",

@@ -188,8 +188,27 @@ describe("generateImage — failures", () => {
 });
 
 describe("generateImage — fake render", () => {
-  it("copies the source photo and never calls OpenAI", async () => {
+  it("writes the canned fixture portrait and never calls OpenAI", async () => {
     process.env.NEXT_PUBLIC_IMAGE_TUNING = "true";
+    const { readFile } = await import("node:fs/promises");
+    const { default: path } = await import("node:path");
+    const fixture = await readFile(
+      path.join(process.cwd(), "fixtures", "fake-portrait.jpg"),
+    );
+    const session = await createSession(imageFile(jpegBytes(96)));
+
+    await generateImage(session.id, { fakeGenerate: true });
+
+    expect(editMock).not.toHaveBeenCalled();
+    const result = await readResultImage(session.id);
+    expect(Buffer.compare(result.bytes, fixture)).toBe(0);
+    expect(result.mime).toBe("image/jpeg");
+    expect((await getSession(session.id)).status).toBe("complete");
+  });
+
+  it("can echo the source photo when FAKE_GENERATE_MODE=echo", async () => {
+    process.env.NEXT_PUBLIC_IMAGE_TUNING = "true";
+    process.env.FAKE_GENERATE_MODE = "echo";
     const bytes = jpegBytes(96);
     const session = await createSession(imageFile(bytes));
 
@@ -199,6 +218,35 @@ describe("generateImage — fake render", () => {
     const result = await readResultImage(session.id);
     const input = await readInputImage(session.id);
     expect(Buffer.compare(result.bytes, input.bytes)).toBe(0);
+  });
+
+  it("records failure on the session when the fake write blows up", async () => {
+    process.env.NEXT_PUBLIC_IMAGE_TUNING = "true";
+    const sessions = await import("@/lib/sessions");
+    const spy = vi
+      .spyOn(sessions, "writeResultImage")
+      .mockRejectedValueOnce(new Error("disk full"));
+    const session = await createSession(imageFile());
+
+    await expect(
+      generateImage(session.id, { fakeGenerate: true }),
+    ).rejects.toThrow("disk full");
+
+    const failed = await getSession(session.id);
+    expect(failed.status).toBe("failed");
+    expect(failed.error).toBe("disk full");
+    expect(editMock).not.toHaveBeenCalled();
+    spy.mockRestore();
+  });
+
+  it("still completes without an OpenAI API key", async () => {
+    process.env.NEXT_PUBLIC_IMAGE_TUNING = "true";
+    delete process.env.OPENAI_API_KEY;
+    const session = await createSession(imageFile());
+
+    await generateImage(session.id, { fakeGenerate: true });
+
+    expect(editMock).not.toHaveBeenCalled();
     expect((await getSession(session.id)).status).toBe("complete");
   });
 
@@ -210,5 +258,6 @@ describe("generateImage — fake render", () => {
       generateImage(session.id, { fakeGenerate: true }),
     ).rejects.toThrow(/假生成/);
     expect(editMock).not.toHaveBeenCalled();
+    expect((await getSession(session.id)).status).toBe("ready");
   });
 });

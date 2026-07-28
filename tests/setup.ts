@@ -15,6 +15,8 @@ const VOLATILE_ENV_KEYS = [
   "OPENAI_IMAGE_QUALITY",
   "OPENAI_IMAGE_SIZE",
   "APP_BASE_URL",
+  "FAKE_GENERATE_DELAY_MS",
+  "FAKE_GENERATE_MODE",
 ];
 
 let dataDir: string;
@@ -34,4 +36,6 @@ beforeEach(() => {
   }
   process.env.OPENAI_API_KEY = "test-api-key";
   process.env.OPENAI_IMAGE_SYSTEM_PROMPT = "test system prompt";
+  // Keep fake-generate unit tests fast unless a case opts into a delay.
+  process.env.FAKE_GENERATE_DELAY_MS = "0";
 });
