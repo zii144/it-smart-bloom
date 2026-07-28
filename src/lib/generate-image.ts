@@ -30,8 +30,16 @@ function openaiCredentials() {
   return { apiKey, prompt };
 }
 
+function markGenerating(id: string) {
+  return updateSession(id, {
+    status: "generating",
+    error: undefined,
+    generationStartedAt: new Date().toISOString(),
+  });
+}
+
 async function performFakeGeneration(id: string) {
-  await updateSession(id, { status: "generating", error: undefined });
+  await markGenerating(id);
   await new Promise((resolve) => setTimeout(resolve, FAKE_GENERATE_DELAY_MS));
   const input = await readInputImage(id);
   await writeResultImage(id, input.bytes, input.mime);
@@ -57,7 +65,7 @@ async function performGeneration(
     return;
   }
 
-  await updateSession(id, { status: "generating", error: undefined });
+  await markGenerating(id);
 
   try {
     const credentials = openaiCredentials();
@@ -110,8 +118,12 @@ export function generateImage(
   overrides?: ImageGenerationOverrides | null,
   force = false,
 ) {
+  // Even a forced retry joins a render that is already running. Starting a
+  // second OpenAI call would bill twice and let whichever response lands last
+  // overwrite the other, which is exactly what the guest-facing retry button
+  // would otherwise do while the first render is still in flight.
   const existing = activeGenerations.get(id);
-  if (existing && !force) {
+  if (existing) {
     return existing;
   }
 

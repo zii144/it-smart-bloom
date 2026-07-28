@@ -1,12 +1,20 @@
+import { after } from "next/server";
 import QRCode from "qrcode";
+import { generateImage } from "@/lib/generate-image";
 import {
   parseImageOverrides,
   resolveImageOptions,
 } from "@/lib/image-options";
 import { isImageTuningEnabled } from "@/lib/runtime-env";
-import { createSession, publicSession, SessionError } from "@/lib/sessions";
+import {
+  createSession,
+  publicSession,
+  purgeExpiredSessions,
+  SessionError,
+} from "@/lib/sessions";
 
 export const runtime = "nodejs";
+export const maxDuration = 300;
 
 export async function POST(request: Request) {
   try {
@@ -17,8 +25,9 @@ export async function POST(request: Request) {
       return Response.json({ error: "請提供一張照片。" }, { status: 400 });
     }
 
+    const tuningEnabled = isImageTuningEnabled();
     let generationOptions = undefined;
-    if (isImageTuningEnabled()) {
+    if (tuningEnabled) {
       const rawOptions = formData.get("imageOptions");
       if (typeof rawOptions === "string" && rawOptions.trim()) {
         try {
@@ -34,6 +43,31 @@ export async function POST(request: Request) {
     }
 
     const session = await createSession(image, generationOptions);
+
+    // Every capture sweeps the previous guests' expired photos off disk. A
+    // booth always takes another photo, so this is the one path guaranteed to
+    // run often enough to keep the 15-minute deletion promise.
+    after(async () => {
+      try {
+        await purgeExpiredSessions();
+      } catch (error) {
+        console.error("Failed to purge expired sessions:", error);
+      }
+    });
+
+    // The phone is only a viewer: start rendering as soon as the photo exists so
+    // the portrait is already on its way while the guest is still scanning the QR.
+    // The one exception is the dev tuning modal, which has to pick options first.
+    if (generationOptions || !tuningEnabled) {
+      after(async () => {
+        try {
+          await generateImage(session.id, generationOptions ?? null);
+        } catch {
+          // generateImage already records the failure on the session itself.
+        }
+      });
+    }
+
     const requestOrigin = new URL(request.url).origin;
     const configuredBaseUrl = process.env.APP_BASE_URL?.trim();
     const baseUrl = (configuredBaseUrl || requestOrigin).replace(/\/+$/, "");

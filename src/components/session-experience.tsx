@@ -1,7 +1,7 @@
 "use client";
 
 import Image from "next/image";
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import { BloomMark } from "@/components/brand";
 import { DevImageSettingsModal } from "@/components/dev-image-settings-modal";
 import type { ImageGenerationOptions } from "@/lib/image-options";
@@ -9,6 +9,8 @@ import type { ImageGenerationOptions } from "@/lib/image-options";
 type SessionStatus = {
   id: string;
   status: "ready" | "generating" | "complete" | "failed";
+  createdAt: string;
+  startedAt: string | null;
   expiresAt: string;
   inputUrl: string;
   resultUrl: string | null;
@@ -16,10 +18,71 @@ type SessionStatus = {
   generationOptions?: ImageGenerationOptions | null;
 };
 
+/** Measured end-to-end render time for gpt-image-2 medium, paces the bar. */
+const EXPECTED_DURATION_MS = 120_000;
+/** How long a session may sit at "ready" before the phone starts it itself. */
+const AUTOSTART_GRACE_MS = 6_000;
+/** Comfortably past a normal render, so a retry only appears on a real stall. */
+const STALL_AFTER_MS = 240_000;
+const POLL_INTERVAL_MS = 2_000;
+/** Slower retry while the network is unreachable. */
+const OFFLINE_RETRY_MS = 3_000;
+/** How long to keep saying "connecting" before calling it a failure. */
+const CONNECT_TIMEOUT_MS = 12_000;
+
+const STAGE_HINTS: { until: number; label: string }[] = [
+  { until: 12_000, label: "正在準備你的照片…" },
+  { until: 35_000, label: "正在描繪輪廓線條…" },
+  { until: 70_000, label: "正在暈染水彩色調…" },
+  { until: 110_000, label: "正在加上光暈與細節…" },
+  { until: Number.POSITIVE_INFINITY, label: "就快完成了，再等一下下…" },
+];
+
+/** Survives React Strict Mode remounts so we never double-fire generate. */
+const generateInFlight = new Map<string, Promise<SessionStatus>>();
+
 function withCacheBust(url: string | null) {
   if (!url) return null;
   const join = url.includes("?") ? "&" : "?";
   return `${url}${join}t=${Date.now()}`;
+}
+
+function formatElapsed(ms: number) {
+  const total = Math.max(0, Math.floor(ms / 1000));
+  const minutes = Math.floor(total / 60);
+  const seconds = total % 60;
+  return `${minutes}:${String(seconds).padStart(2, "0")}`;
+}
+
+async function postGenerate(
+  id: string,
+  options: ImageGenerationOptions | null,
+  force: boolean,
+): Promise<SessionStatus> {
+  const existing = generateInFlight.get(id);
+  if (existing && !force) return existing;
+
+  const request = (async () => {
+    const response = await fetch(`/api/sessions/${id}/generate`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ ...(options ?? {}), force }),
+    });
+    const payload = await response.json();
+    if (!response.ok) {
+      throw new Error(payload.error || "無法完成你的人像創作。");
+    }
+    return payload as SessionStatus;
+  })();
+
+  generateInFlight.set(id, request);
+  try {
+    return await request;
+  } finally {
+    if (generateInFlight.get(id) === request) {
+      generateInFlight.delete(id);
+    }
+  }
 }
 
 export function SessionExperience({
@@ -35,71 +98,127 @@ export function SessionExperience({
   const [pendingForce, setPendingForce] = useState(false);
   const [lastOptions, setLastOptions] =
     useState<ImageGenerationOptions | null>(null);
+  const [now, setNow] = useState(() => Date.now());
+  const [offline, setOffline] = useState(false);
+
+  const applySession = useCallback((next: SessionStatus) => {
+    setSession(next);
+    setOffline(false);
+    // Only real forward progress clears a failure. A poll that still reports
+    // "ready" means nothing started, so wiping the error here would drop the
+    // guest back onto a progress bar that is never going to finish.
+    if (next.status === "generating" || next.status === "complete") {
+      setError(null);
+    }
+  }, []);
 
   useEffect(() => {
     let active = true;
     let timer: number | undefined;
+    let latestStatus: SessionStatus["status"] | null = null;
+    // The fallback kick happens at most once per mount. If it does not take,
+    // polling continues and the stall UI offers a deliberate manual retry
+    // rather than us re-posting (and possibly re-billing) every two seconds.
+    let fallbackStarted = false;
 
-    async function readSession() {
-      try {
-        const response = await fetch(`/api/sessions/${id}`, {
-          cache: "no-store",
-        });
-        const payload = await response.json();
-        if (!response.ok) {
-          throw new Error(payload.error || "此連結目前無法使用。");
-        }
-        if (!active) return;
-        setSession(payload as SessionStatus);
-
-        if (payload.status !== "complete" && payload.status !== "failed") {
-          timer = window.setTimeout(readSession, 2000);
-        }
-      } catch (caught) {
-        if (!active) return;
-        setError(
-          caught instanceof Error ? caught.message : "此連結目前無法使用。",
-        );
-      }
+    function schedulePoll(delayMs: number) {
+      if (timer) window.clearTimeout(timer);
+      timer = window.setTimeout(() => void poll(), delayMs);
     }
 
-    async function begin() {
+    /**
+     * A dropped request on hotel/venue Wi-Fi must not end the session: only an
+     * explicit "gone" answer from the server is treated as final.
+     */
+    async function readStatus(): Promise<
+      | { kind: "ok"; session: SessionStatus }
+      | { kind: "gone"; message: string }
+      | { kind: "offline" }
+    > {
+      let response: Response;
       try {
-        const initialResponse = await fetch(`/api/sessions/${id}`, {
-          cache: "no-store",
-        });
-        const initial = await initialResponse.json();
-        if (!initialResponse.ok) {
-          throw new Error(initial.error || "此連結目前無法使用。");
-        }
+        response = await fetch(`/api/sessions/${id}`, { cache: "no-store" });
+      } catch {
+        return { kind: "offline" };
+      }
+
+      let payload: Partial<SessionStatus> & { error?: string };
+      try {
+        payload = await response.json();
+      } catch {
+        return { kind: "offline" };
+      }
+
+      if (!response.ok) {
+        return {
+          kind: "gone",
+          message: payload.error || "此連結目前無法使用。",
+        };
+      }
+
+      return { kind: "ok", session: payload as SessionStatus };
+    }
+
+    async function poll() {
+      const result = await readStatus();
+      if (!active) return;
+
+      if (result.kind === "offline") {
+        setOffline(true);
+        schedulePoll(OFFLINE_RETRY_MS);
+        return;
+      }
+
+      if (result.kind === "gone") {
+        setError(result.message);
+        return;
+      }
+
+      const next = result.session;
+      latestStatus = next.status;
+      applySession(next);
+
+      if (next.status === "complete" || next.status === "failed") return;
+
+      // The server starts generation when the booth creates the session.
+      // If that never happened, the phone starts it after a short grace.
+      const waitingTooLong =
+        Date.now() - Date.parse(next.createdAt) > AUTOSTART_GRACE_MS;
+      const needsOptionsFirst = tuningEnabled && !next.generationOptions;
+
+      if (
+        next.status === "ready" &&
+        waitingTooLong &&
+        !needsOptionsFirst &&
+        !fallbackStarted &&
+        !generateInFlight.has(id)
+      ) {
+        fallbackStarted = true;
+        void kickGenerate(next.generationOptions ?? null, false);
+      }
+
+      schedulePoll(POLL_INTERVAL_MS);
+    }
+
+    async function kickGenerate(
+      options: ImageGenerationOptions | null,
+      force: boolean,
+    ) {
+      if (!force && generateInFlight.has(id)) return;
+
+      try {
+        const next = await postGenerate(id, options, force);
         if (!active) return;
-        setSession(initial as SessionStatus);
-
-        if (initial.status === "ready" || initial.status === "failed") {
-          if (tuningEnabled) {
-            setPendingForce(initial.status === "failed");
-            if (initial.generationOptions) {
-              setLastOptions(initial.generationOptions);
-            }
-            setShowSettings(true);
-          } else {
-            const generationResponse = await fetch(
-              `/api/sessions/${id}/generate`,
-              { method: "POST" },
-            );
-            const generated = await generationResponse.json();
-            if (!generationResponse.ok) {
-              throw new Error(
-                generated.error || "無法完成你的人像創作。",
-              );
-            }
-            if (active) setSession(generated as SessionStatus);
-          }
-        }
-
-        timer = window.setTimeout(readSession, 800);
+        latestStatus = next.status;
+        applySession({
+          ...next,
+          resultUrl: force ? withCacheBust(next.resultUrl) : next.resultUrl,
+        });
       } catch (caught) {
-        if (active) {
+        if (!active) return;
+        // Polling stays authoritative; a lost generate call is not fatal on
+        // its own because the server may still be rendering.
+        if (latestStatus !== "complete") {
           setError(
             caught instanceof Error
               ? caught.message
@@ -109,12 +228,72 @@ export function SessionExperience({
       }
     }
 
+    async function begin() {
+      const result = await readStatus();
+      if (!active) return;
+
+      if (result.kind === "offline") {
+        setOffline(true);
+        schedulePoll(OFFLINE_RETRY_MS);
+        return;
+      }
+
+      if (result.kind === "gone") {
+        setError(result.message);
+        return;
+      }
+
+      const current = result.session;
+      latestStatus = current.status;
+      applySession(current);
+
+      if (
+        tuningEnabled &&
+        !current.generationOptions &&
+        (current.status === "ready" || current.status === "failed")
+      ) {
+        setPendingForce(current.status === "failed");
+        setShowSettings(true);
+      }
+
+      schedulePoll(POLL_INTERVAL_MS);
+    }
+
+    // Phones throttle timers the moment the guest locks the screen or switches
+    // apps, so a wait that spans a pocket trip would otherwise come back to a
+    // stale clock and a stale status. Catch up the instant we are visible.
+    function wake() {
+      if (!active || document.visibilityState === "hidden") return;
+      setNow(Date.now());
+      schedulePoll(0);
+    }
+
+    document.addEventListener("visibilitychange", wake);
+    window.addEventListener("focus", wake);
+    window.addEventListener("online", wake);
+
     void begin();
     return () => {
       active = false;
       if (timer) window.clearTimeout(timer);
+      document.removeEventListener("visibilitychange", wake);
+      window.removeEventListener("focus", wake);
+      window.removeEventListener("online", wake);
     };
-  }, [id, tuningEnabled]);
+  }, [id, tuningEnabled, applySession]);
+
+  const complete = session?.status === "complete" && session.resultUrl;
+  const failed = Boolean(error) || session?.status === "failed";
+  // Deliberately not gated on `session`: the clock has to keep moving before
+  // the first response too, otherwise a page that cannot reach the server just
+  // sits at 0:00 and looks broken.
+  const waiting = !complete && !failed;
+
+  useEffect(() => {
+    if (!waiting) return;
+    const ticker = window.setInterval(() => setNow(Date.now()), 1000);
+    return () => window.clearInterval(ticker);
+  }, [waiting]);
 
   async function runWithOptions(
     options: ImageGenerationOptions,
@@ -123,11 +302,13 @@ export function SessionExperience({
     setLastOptions(options);
     setShowSettings(false);
     setError(null);
+    setPendingForce(force);
     setSession((current) =>
       current
         ? {
             ...current,
             status: "generating",
+            startedAt: current.startedAt ?? new Date().toISOString(),
             resultUrl: force ? null : current.resultUrl,
             error: null,
           }
@@ -135,18 +316,8 @@ export function SessionExperience({
     );
 
     try {
-      const generationResponse = await fetch(`/api/sessions/${id}/generate`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ ...options, force }),
-      });
-      const generated = await generationResponse.json();
-      if (!generationResponse.ok) {
-        throw new Error(generated.error || "無法完成你的人像創作。");
-      }
-
-      const next = generated as SessionStatus;
-      setSession({
+      const next = await postGenerate(id, options, force);
+      applySession({
         ...next,
         resultUrl: force ? withCacheBust(next.resultUrl) : next.resultUrl,
       });
@@ -157,10 +328,47 @@ export function SessionExperience({
     }
   }
 
-  const complete = session?.status === "complete" && session.resultUrl;
-  const canDismissSettings = Boolean(
-    complete || error || session?.status === "failed",
-  );
+  async function retry() {
+    setError(null);
+    setSession((current) =>
+      current
+        ? {
+            ...current,
+            status: "generating",
+            startedAt: new Date().toISOString(),
+            error: null,
+          }
+        : current,
+    );
+
+    try {
+      const next = await postGenerate(id, lastOptions, true);
+      applySession({ ...next, resultUrl: withCacheBust(next.resultUrl) });
+    } catch (caught) {
+      setError(
+        caught instanceof Error ? caught.message : "無法完成你的人像創作。",
+      );
+    }
+  }
+
+  // No session yet means we have not had a single successful reply from the
+  // server, which is a connectivity problem rather than a slow render.
+  const connecting = waiting && !session;
+  const [mountedAt] = useState(() => Date.now());
+  const startedAtMs = session
+    ? Date.parse(session.startedAt ?? session.createdAt)
+    : mountedAt;
+  const elapsedMs = Math.max(0, now - startedAtMs);
+  const connectionFailed = connecting && elapsedMs > CONNECT_TIMEOUT_MS;
+  const stalled = waiting && !connecting && elapsedMs > STALL_AFTER_MS;
+  // Ease toward 96% so the bar always advances without ever promising the end.
+  const progress = showSettings
+    ? 0
+    : Math.min(0.96, 1 - Math.exp(-elapsedMs / (EXPECTED_DURATION_MS / 2.2)));
+  const stageHint =
+    STAGE_HINTS.find((stage) => elapsedMs < stage.until)?.label ??
+    "就快完成了，再等一下下…";
+  const canDismissSettings = Boolean(complete || failed);
 
   return (
     <main className="mobile-shell">
@@ -168,6 +376,12 @@ export function SessionExperience({
         <BloomMark />
         <span>私人創作空間</span>
       </header>
+
+      <noscript>
+        <div className="noscript-banner">
+          這一頁需要 JavaScript 才能顯示你的人像，請用 Safari 或 Chrome 開啟。
+        </div>
+      </noscript>
 
       <section className="mobile-experience">
         {complete ? (
@@ -208,7 +422,7 @@ export function SessionExperience({
             )}
             <p className="expiry-copy">此連結將於 15 分鐘後失效</p>
           </>
-        ) : error || session?.status === "failed" ? (
+        ) : failed ? (
           <div className="mobile-error">
             <div className="error-flower">×</div>
             <p className="eyebrow">似乎出了點狀況</p>
@@ -218,10 +432,13 @@ export function SessionExperience({
                 session?.error ||
                 "請回到拍照裝置，重新開始一個創作空間。"}
             </p>
+            <button type="button" className="retry-button" onClick={retry}>
+              重新生成我的人像
+            </button>
             {tuningEnabled && (
               <button
                 type="button"
-                className="primary-button"
+                className="dev-regen-button"
                 onClick={() => {
                   setPendingForce(true);
                   setShowSettings(true);
@@ -254,23 +471,80 @@ export function SessionExperience({
             <h1>
               {showSettings
                 ? "先選好開發參數。"
-                : "你的似顏繪，正在悄悄綻放。"}
+                : connectionFailed
+                  ? "連不上創作空間。"
+                  : connecting
+                    ? "正在連線…"
+                    : stalled
+                      ? "比預期久了一些。"
+                      : "你的似顏繪，正在悄悄綻放。"}
             </h1>
             <p>
               {showSettings
                 ? "此彈窗僅在本地開發與 Vercel Preview 顯示，用來微調 OpenAI 成本與畫質。"
-                : "請保持此頁面開啟。你的 AI 藝術人像通常會在一至兩分鐘內完成。"}
+                : connectionFailed
+                  ? "請確認手機與拍照裝置連著同一個 Wi-Fi，然後重新整理這一頁。"
+                  : connecting
+                    ? "正在讀取你的創作空間，馬上就好。"
+                    : stalled
+                      ? "這次的創作卡住了。你可以重新生成一次，通常很快就會完成。"
+                      : "請保持此頁面開啟。你的 AI 藝術人像通常會在一至三分鐘內完成。"}
             </p>
+
             {!showSettings && (
               <>
-                <div className="progress-track">
-                  <span />
+                <div
+                  className={
+                    connecting ? "progress-track" : "progress-track is-determinate"
+                  }
+                  role="progressbar"
+                  aria-valuemin={0}
+                  aria-valuemax={100}
+                  aria-valuenow={Math.round(progress * 100)}
+                  aria-label="人像生成進度"
+                >
+                  <span
+                    style={
+                      connecting
+                        ? undefined
+                        : { width: `${Math.round(progress * 100)}%` }
+                    }
+                  />
                 </div>
-                <p className="progress-label">
-                  {session?.status === "generating"
-                    ? "正在描繪最後的細節…"
-                    : "正在準備你的照片…"}
+                <p className="progress-label" aria-live="polite">
+                  {offline
+                    ? "連線中斷，重試中…"
+                    : connectionFailed
+                      ? "無法連線"
+                      : connecting
+                        ? "正在連線…"
+                        : stalled
+                          ? "尚未完成"
+                          : stageHint}
+                  <span className="progress-elapsed">
+                    {formatElapsed(elapsedMs)}
+                  </span>
                 </p>
+
+                {connectionFailed && (
+                  <button
+                    type="button"
+                    className="retry-button"
+                    onClick={() => window.location.reload()}
+                  >
+                    重新整理
+                  </button>
+                )}
+
+                {stalled && (
+                  <button
+                    type="button"
+                    className="retry-button"
+                    onClick={retry}
+                  >
+                    重新生成我的人像
+                  </button>
+                )}
               </>
             )}
           </div>
