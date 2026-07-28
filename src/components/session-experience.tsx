@@ -3,6 +3,9 @@
 import Image from "next/image";
 import { useEffect, useState } from "react";
 import { BloomMark } from "@/components/brand";
+import { DevImageSettingsModal } from "@/components/dev-image-settings-modal";
+import type { ImageGenerationOptions } from "@/lib/image-options";
+import { isImageTuningEnabled } from "@/lib/runtime-env";
 
 type SessionStatus = {
   id: string;
@@ -13,9 +16,21 @@ type SessionStatus = {
   error: string | null;
 };
 
+const tuningEnabled = isImageTuningEnabled();
+
+function withCacheBust(url: string | null) {
+  if (!url) return null;
+  const join = url.includes("?") ? "&" : "?";
+  return `${url}${join}t=${Date.now()}`;
+}
+
 export function SessionExperience({ id }: { id: string }) {
   const [session, setSession] = useState<SessionStatus | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [showSettings, setShowSettings] = useState(false);
+  const [pendingForce, setPendingForce] = useState(false);
+  const [lastOptions, setLastOptions] =
+    useState<ImageGenerationOptions | null>(null);
 
   useEffect(() => {
     let active = true;
@@ -27,7 +42,9 @@ export function SessionExperience({ id }: { id: string }) {
           cache: "no-store",
         });
         const payload = await response.json();
-        if (!response.ok) throw new Error(payload.error || "此連結目前無法使用。");
+        if (!response.ok) {
+          throw new Error(payload.error || "此連結目前無法使用。");
+        }
         if (!active) return;
         setSession(payload as SessionStatus);
 
@@ -39,30 +56,6 @@ export function SessionExperience({ id }: { id: string }) {
         setError(
           caught instanceof Error ? caught.message : "此連結目前無法使用。",
         );
-      }
-    }
-
-    async function triggerGeneration() {
-      try {
-        const generationResponse = await fetch(
-          `/api/sessions/${id}/generate`,
-          { method: "POST" },
-        );
-        const generated = await generationResponse.json();
-        if (!generationResponse.ok) {
-          throw new Error(
-            generated.error || "無法完成你的人像創作。",
-          );
-        }
-        if (active) setSession(generated as SessionStatus);
-      } catch (caught) {
-        if (active) {
-          setError(
-            caught instanceof Error
-              ? caught.message
-              : "無法完成你的人像創作。",
-          );
-        }
       }
     }
 
@@ -79,7 +72,22 @@ export function SessionExperience({ id }: { id: string }) {
         setSession(initial as SessionStatus);
 
         if (initial.status === "ready" || initial.status === "failed") {
-          void triggerGeneration();
+          if (tuningEnabled) {
+            setPendingForce(false);
+            setShowSettings(true);
+          } else {
+            const generationResponse = await fetch(
+              `/api/sessions/${id}/generate`,
+              { method: "POST" },
+            );
+            const generated = await generationResponse.json();
+            if (!generationResponse.ok) {
+              throw new Error(
+                generated.error || "無法完成你的人像創作。",
+              );
+            }
+            if (active) setSession(generated as SessionStatus);
+          }
         }
 
         timer = window.setTimeout(readSession, 800);
@@ -101,7 +109,51 @@ export function SessionExperience({ id }: { id: string }) {
     };
   }, [id]);
 
+  async function runWithOptions(
+    options: ImageGenerationOptions,
+    force: boolean,
+  ) {
+    setLastOptions(options);
+    setShowSettings(false);
+    setError(null);
+    setSession((current) =>
+      current
+        ? {
+            ...current,
+            status: "generating",
+            resultUrl: force ? null : current.resultUrl,
+            error: null,
+          }
+        : current,
+    );
+
+    try {
+      const generationResponse = await fetch(`/api/sessions/${id}/generate`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ ...options, force }),
+      });
+      const generated = await generationResponse.json();
+      if (!generationResponse.ok) {
+        throw new Error(generated.error || "無法完成你的人像創作。");
+      }
+
+      const next = generated as SessionStatus;
+      setSession({
+        ...next,
+        resultUrl: force ? withCacheBust(next.resultUrl) : next.resultUrl,
+      });
+    } catch (caught) {
+      setError(
+        caught instanceof Error ? caught.message : "無法完成你的人像創作。",
+      );
+    }
+  }
+
   const complete = session?.status === "complete" && session.resultUrl;
+  const canDismissSettings = Boolean(
+    complete || error || session?.status === "failed",
+  );
 
   return (
     <main className="mobile-shell">
@@ -135,6 +187,18 @@ export function SessionExperience({ id }: { id: string }) {
             >
               下載我的專屬人像
             </a>
+            {tuningEnabled && (
+              <button
+                type="button"
+                className="dev-regen-button"
+                onClick={() => {
+                  setPendingForce(true);
+                  setShowSettings(true);
+                }}
+              >
+                Dev：用其他參數重新生成
+              </button>
+            )}
             <p className="expiry-copy">此連結將於 15 分鐘後失效</p>
           </>
         ) : error || session?.status === "failed" ? (
@@ -147,6 +211,18 @@ export function SessionExperience({ id }: { id: string }) {
                 session?.error ||
                 "請回到拍照裝置，重新開始一個創作空間。"}
             </p>
+            {tuningEnabled && (
+              <button
+                type="button"
+                className="primary-button"
+                onClick={() => {
+                  setPendingForce(true);
+                  setShowSettings(true);
+                }}
+              >
+                Dev：調整參數後再試
+              </button>
+            )}
           </div>
         ) : (
           <div className="generation-wait">
@@ -168,18 +244,28 @@ export function SessionExperience({ id }: { id: string }) {
               </div>
             </div>
             <p className="eyebrow">路老師似顏繪</p>
-            <h1>你的似顏繪，正在悄悄綻放。</h1>
+            <h1>
+              {showSettings
+                ? "先選好開發參數。"
+                : "你的似顏繪，正在悄悄綻放。"}
+            </h1>
             <p>
-              請保持此頁面開啟。你的 AI 藝術人像通常會在一至兩分鐘內完成。
+              {showSettings
+                ? "此彈窗僅在本地開發與 Vercel Preview 顯示，用來微調 OpenAI 成本與畫質。"
+                : "請保持此頁面開啟。你的 AI 藝術人像通常會在一至兩分鐘內完成。"}
             </p>
-            <div className="progress-track">
-              <span />
-            </div>
-            <p className="progress-label">
-              {session?.status === "generating"
-                ? "正在描繪最後的細節…"
-                : "正在準備你的照片…"}
-            </p>
+            {!showSettings && (
+              <>
+                <div className="progress-track">
+                  <span />
+                </div>
+                <p className="progress-label">
+                  {session?.status === "generating"
+                    ? "正在描繪最後的細節…"
+                    : "正在準備你的照片…"}
+                </p>
+              </>
+            )}
           </div>
         )}
       </section>
@@ -187,6 +273,20 @@ export function SessionExperience({ id }: { id: string }) {
       <footer className="mobile-footer">
         照片會經過安全處理，並於期限後自動刪除。
       </footer>
+
+      {tuningEnabled && (
+        <DevImageSettingsModal
+          open={showSettings}
+          initial={lastOptions}
+          confirmLabel={pendingForce ? "強制重新生成" : "開始生成"}
+          onCancel={
+            canDismissSettings ? () => setShowSettings(false) : undefined
+          }
+          onConfirm={(options) => {
+            void runWithOptions(options, pendingForce);
+          }}
+        />
+      )}
     </main>
   );
 }
