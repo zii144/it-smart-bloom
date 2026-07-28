@@ -235,3 +235,70 @@ export async function readArchiveRecord(sessionId: string) {
   const snap = await sessionDoc(sessionId)?.get();
   return (snap?.data() as ArchiveRecord | undefined) ?? null;
 }
+
+export async function readArchiveImage(objectPath: string): Promise<{
+  bytes: Buffer;
+  mime: string;
+} | null> {
+  const bucket = getBucket();
+  if (!bucket || !objectPath) return null;
+
+  try {
+    const file = bucket.file(objectPath);
+    const [bytes] = await file.download();
+    const [metadata] = await file.getMetadata();
+    const mime =
+      typeof metadata.contentType === "string" && metadata.contentType
+        ? metadata.contentType
+        : "application/octet-stream";
+    return { bytes: Buffer.from(bytes), mime };
+  } catch (error) {
+    console.error(`Firebase Storage download failed for ${objectPath}:`, error);
+    return null;
+  }
+}
+
+export type ListArchiveResult = {
+  sessions: ArchiveRecord[];
+  error: string | null;
+};
+
+export async function listArchiveSessions({
+  limit = 50,
+}: {
+  limit?: number;
+} = {}): Promise<ListArchiveResult> {
+  if (!isFirebaseConfigured()) {
+    return { sessions: [], error: "Firebase is not configured." };
+  }
+
+  const db = getDb();
+  if (!db) {
+    return { sessions: [], error: "Firebase is not configured." };
+  }
+
+  const capped = Math.min(Math.max(limit, 1), 200);
+
+  try {
+    const snap = await db
+      .collection("sessions")
+      .orderBy("createdAt", "desc")
+      .limit(capped)
+      .get();
+
+    const sessions = snap.docs.map((doc) => {
+      const data = doc.data() as ArchiveRecord;
+      return {
+        ...data,
+        sessionId: data.sessionId || doc.id,
+      };
+    });
+
+    return { sessions, error: null };
+  } catch (error) {
+    const message =
+      error instanceof Error ? error.message : "Failed to list archive sessions.";
+    console.error("listArchiveSessions failed:", error);
+    return { sessions: [], error: message };
+  }
+}

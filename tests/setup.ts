@@ -17,6 +17,7 @@ const VOLATILE_ENV_KEYS = [
   "APP_BASE_URL",
   "FAKE_GENERATE_DELAY_MS",
   "FAKE_GENERATE_MODE",
+  "ADMIN_DASHBOARD_SECRET",
 ];
 
 let dataDir: string;
