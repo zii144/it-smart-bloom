@@ -8,6 +8,9 @@ import {
   useState,
 } from "react";
 import { BloomMark } from "@/components/brand";
+import { DevImageSettingsModal } from "@/components/dev-image-settings-modal";
+import type { ImageGenerationOptions } from "@/lib/image-options";
+import { buildLineShareUrl } from "@/lib/line-share";
 
 type SessionPayload = {
   id: string;
@@ -81,16 +84,33 @@ function SparkIcon() {
   );
 }
 
-export function CameraBooth() {
+function LineIcon() {
+  return (
+    <svg viewBox="0 0 24 24" aria-hidden="true">
+      <path
+        fill="currentColor"
+        d="M19.7 9.7c0-4-4-7.3-8.9-7.3S1.9 5.7 1.9 9.7c0 3.6 3.2 6.7 7.5 7.2.29.06.69.19.79.44.09.23.06.59.03.82l-.14.86c-.04.25-.2 1 .95.54 1.15-.44 6.2-3.65 8.47-6.25 1.56-1.7 2.2-3.42 2.2-5.11Z"
+      />
+    </svg>
+  );
+}
+
+export function CameraBooth({
+  tuningEnabled = false,
+}: {
+  tuningEnabled?: boolean;
+}) {
   const [step, setStep] = useState<BoothStep>("intro");
   const [photo, setPhoto] = useState<Blob | null>(null);
   const [previewUrl, setPreviewUrl] = useState<string | null>(null);
   const [session, setSession] = useState<SessionPayload | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [cameraReady, setCameraReady] = useState(false);
+  const [showSettings, setShowSettings] = useState(false);
+  const [tuningOptions, setTuningOptions] =
+    useState<ImageGenerationOptions | null>(null);
   const videoRef = useRef<HTMLVideoElement>(null);
   const streamRef = useRef<MediaStream | null>(null);
-
   const stopCamera = useCallback(() => {
     streamRef.current?.getTracks().forEach((track) => track.stop());
     streamRef.current = null;
@@ -213,14 +233,26 @@ export function CameraBooth() {
     void openCamera();
   }
 
-  async function createShareSession() {
+  async function createShareSession(options?: ImageGenerationOptions | null) {
     if (!photo) return;
+
+    if (tuningEnabled && !options && !tuningOptions) {
+      setShowSettings(true);
+      return;
+    }
+
+    if (options) setTuningOptions(options);
     setError(null);
     setStep("sharing");
+    setShowSettings(false);
 
     try {
       const formData = new FormData();
       formData.set("image", photo, "portrait.jpg");
+      const optionsToStore = options ?? tuningOptions;
+      if (optionsToStore) {
+        formData.set("imageOptions", JSON.stringify(optionsToStore));
+      }
       const response = await fetch("/api/sessions", {
         method: "POST",
         body: formData,
@@ -244,6 +276,8 @@ export function CameraBooth() {
     setPhoto(null);
     setSession(null);
     setError(null);
+    setShowSettings(false);
+    setTuningOptions(null);
     if (previewUrl) URL.revokeObjectURL(previewUrl);
     setPreviewUrl(null);
     setStep("intro");
@@ -420,7 +454,7 @@ export function CameraBooth() {
               <button className="secondary-button" onClick={retake}>
                 重新拍攝
               </button>
-              <button className="primary-button" onClick={createShareSession}>
+              <button className="primary-button" onClick={() => void createShareSession()}>
                 使用這張照片
                 <span className="button-arrow">
                   <ArrowIcon />
@@ -445,10 +479,10 @@ export function CameraBooth() {
               <>
                 <div className="share-copy">
                   <p className="eyebrow">接續在手機上體驗</p>
-                  <h1>掃描，開啟你的似顏繪。</h1>
+                  <h1>掃描，或用 LINE 接收。</h1>
                   <p>
-                    開啟手機相機並掃描 QR Code。進入頁面後，
-                    我們就會立即開始創作你的路老師似顏繪。
+                    開啟手機相機掃描 QR Code，或點下方按鈕透過 LINE
+                    接收私人連結。進入頁面後，我們就會開始創作你的路老師似顏繪。
                   </p>
                   <div className="live-status">
                     <span
@@ -458,19 +492,33 @@ export function CameraBooth() {
                     />
                     {session.status === "generating"
                       ? "正在創作你的路老師似顏繪"
-                      : "等待手機掃描"}
+                      : "等待手機開啟連結"}
                   </div>
                 </div>
-                <div className="qr-card">
-                  <Image
-                    src={session.qrDataUrl}
-                    alt="私人藝術人像連結 QR Code"
-                    width={320}
-                    height={320}
-                    unoptimized
-                    loading="eager"
-                  />
-                  <p>私人連結・15 分鐘後失效</p>
+                <div className="share-actions">
+                  <div className="qr-card">
+                    <Image
+                      src={session.qrDataUrl}
+                      alt="私人藝術人像連結 QR Code"
+                      width={320}
+                      height={320}
+                      unoptimized
+                      loading="eager"
+                    />
+                    <p>私人連結・15 分鐘後失效</p>
+                  </div>
+                  <a
+                    className="line-receive-button"
+                    href={buildLineShareUrl(
+                      session.sessionUrl,
+                      "開啟你的路老師似顏繪（私人連結，15 分鐘內有效）",
+                    )}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                  >
+                    <LineIcon />
+                    用 LINE 接收連結
+                  </a>
                 </div>
                 {error && <p className="error-message">{error}</p>}
                 <button className="text-button" onClick={startOver}>
@@ -517,6 +565,19 @@ export function CameraBooth() {
         <span>用心創作・由 OpenAI 提供技術</span>
         <span>繼續使用即表示你同意進行 AI 圖像處理。</span>
       </footer>
+
+      {tuningEnabled && (
+        <DevImageSettingsModal
+          open={showSettings}
+          initial={tuningOptions}
+          confirmLabel="套用並建立連結"
+          onCancel={() => setShowSettings(false)}
+          onConfirm={(options) => {
+            setTuningOptions(options);
+            void createShareSession(options);
+          }}
+        />
+      )}
     </main>
   );
 }

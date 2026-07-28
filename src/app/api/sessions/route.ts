@@ -1,4 +1,9 @@
 import QRCode from "qrcode";
+import {
+  parseImageOverrides,
+  resolveImageOptions,
+} from "@/lib/image-options";
+import { isImageTuningEnabled } from "@/lib/runtime-env";
 import { createSession, publicSession, SessionError } from "@/lib/sessions";
 
 export const runtime = "nodejs";
@@ -12,7 +17,23 @@ export async function POST(request: Request) {
       return Response.json({ error: "請提供一張照片。" }, { status: 400 });
     }
 
-    const session = await createSession(image);
+    let generationOptions = undefined;
+    if (isImageTuningEnabled()) {
+      const rawOptions = formData.get("imageOptions");
+      if (typeof rawOptions === "string" && rawOptions.trim()) {
+        try {
+          generationOptions = resolveImageOptions(
+            parseImageOverrides(JSON.parse(rawOptions)),
+          );
+        } catch (error) {
+          const message =
+            error instanceof Error ? error.message : "圖片參數無效。";
+          return Response.json({ error: message }, { status: 400 });
+        }
+      }
+    }
+
+    const session = await createSession(image, generationOptions);
     const requestOrigin = new URL(request.url).origin;
     const configuredBaseUrl = process.env.APP_BASE_URL?.trim();
     const baseUrl = (configuredBaseUrl || requestOrigin).replace(/\/+$/, "");

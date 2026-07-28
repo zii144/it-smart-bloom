@@ -1,6 +1,7 @@
 import { randomBytes } from "node:crypto";
 import { mkdir, readFile, rename, stat, writeFile } from "node:fs/promises";
 import path from "node:path";
+import type { ImageGenerationOptions } from "@/lib/image-options";
 
 export const SESSION_TTL_MS = 15 * 60 * 1000;
 export const MAX_UPLOAD_BYTES = 12 * 1024 * 1024;
@@ -22,6 +23,7 @@ export type ImageSession = {
   inputMime: string;
   resultMime?: string;
   error?: string;
+  generationOptions?: ImageGenerationOptions;
 };
 
 function sessionsRoot() {
@@ -94,7 +96,10 @@ export class SessionError extends Error {
   }
 }
 
-export async function createSession(file: File) {
+export async function createSession(
+  file: File,
+  generationOptions?: ImageGenerationOptions,
+) {
   if (!SUPPORTED_IMAGE_TYPES.has(file.type)) {
     throw new SessionError("請使用 JPEG、PNG 或 WebP 格式的照片。", 415);
   }
@@ -116,6 +121,7 @@ export async function createSession(file: File) {
     expiresAt: new Date(createdAt.getTime() + SESSION_TTL_MS).toISOString(),
     status: "ready",
     inputMime: file.type,
+    ...(generationOptions ? { generationOptions } : {}),
   };
 
   await mkdir(sessionDirectory(id), { recursive: true });
@@ -218,5 +224,6 @@ export function publicSession(session: ImageSession) {
       session.status === "failed"
         ? "無法完成這次創作，請回到拍照裝置後再試一次。"
         : null,
+    generationOptions: session.generationOptions ?? null,
   };
 }

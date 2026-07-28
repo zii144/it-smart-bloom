@@ -4,6 +4,7 @@ import {
   resolveImageOptions,
   type ImageGenerationOverrides,
 } from "@/lib/image-options";
+import { isImageTuningEnabled } from "@/lib/runtime-env";
 import {
   getSession,
   readInputImage,
@@ -12,6 +13,7 @@ import {
 } from "@/lib/sessions";
 
 const activeGenerations = new Map<string, Promise<void>>();
+const FAKE_GENERATE_DELAY_MS = 1200;
 
 function openaiCredentials() {
   const apiKey = process.env.OPENAI_API_KEY?.trim();
@@ -28,6 +30,13 @@ function openaiCredentials() {
   return { apiKey, prompt };
 }
 
+async function performFakeGeneration(id: string) {
+  await updateSession(id, { status: "generating", error: undefined });
+  await new Promise((resolve) => setTimeout(resolve, FAKE_GENERATE_DELAY_MS));
+  const input = await readInputImage(id);
+  await writeResultImage(id, input.bytes, input.mime);
+}
+
 async function performGeneration(
   id: string,
   overrides?: ImageGenerationOverrides | null,
@@ -38,11 +47,20 @@ async function performGeneration(
     return;
   }
 
+  const settings = resolveImageOptions(overrides);
+
+  if (settings.fakeGenerate) {
+    if (!isImageTuningEnabled()) {
+      throw new Error("假生成僅能在開發或 Preview 環境使用。");
+    }
+    await performFakeGeneration(id);
+    return;
+  }
+
   await updateSession(id, { status: "generating", error: undefined });
 
   try {
     const credentials = openaiCredentials();
-    const settings = resolveImageOptions(overrides);
     const input = await readInputImage(id);
     const client = new OpenAI({ apiKey: credentials.apiKey });
     const extension =
