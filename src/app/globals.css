@@ -876,7 +876,6 @@ button {
   font-weight: 750;
   text-decoration: none;
   transition:
-    transform 180ms ease,
     background 180ms ease,
     box-shadow 180ms ease;
 }
@@ -888,7 +887,6 @@ button {
 }
 
 .primary-button:hover {
-  transform: translateY(-2px);
   background: #234b3b;
   box-shadow: 0 17px 36px rgba(24, 55, 43, 0.22);
 }
@@ -905,7 +903,6 @@ button {
 }
 
 .secondary-button:hover {
-  transform: translateY(-2px);
   background: var(--paper);
 }
 
@@ -1397,7 +1394,7 @@ button {
   font-weight: 700;
   text-decoration: none;
   box-shadow: 0 12px 28px rgba(6, 199, 85, 0.28);
-  transition: transform 160ms ease, filter 160ms ease;
+  transition: filter 160ms ease;
 }
 
 .line-receive-button svg {
@@ -1406,7 +1403,6 @@ button {
 }
 
 .line-receive-button:hover {
-  transform: translateY(-1px);
   filter: brightness(1.03);
 }
 
@@ -1426,11 +1422,21 @@ button {
   text-transform: uppercase;
 }
 
+.share-layout > .primary-button,
 .share-layout > .text-button,
 .share-layout > .error-message {
   grid-column: 1 / -1;
-  justify-self: center;
   margin: -22px 0 0;
+}
+
+.share-layout > .primary-button {
+  justify-self: stretch;
+  width: 100%;
+}
+
+.share-layout > .text-button,
+.share-layout > .error-message {
+  justify-self: center;
 }
 
 .creation-loader {
@@ -1692,18 +1698,15 @@ button {
   font-size: 15px;
   font-weight: 700;
   cursor: pointer;
-  transition:
-    transform 0.2s ease,
-    filter 0.2s ease;
+  transition: filter 0.2s ease;
 }
 
 .retry-button:hover {
-  transform: translateY(-1px);
   filter: brightness(1.05);
 }
 
 .retry-button:active {
-  transform: translateY(0);
+  filter: brightness(0.98);
 }
 
 .mobile-title {
@@ -1750,7 +1753,7 @@ button {
   text-decoration: none;
   cursor: pointer;
   box-shadow: 0 12px 28px rgba(24, 119, 242, 0.28);
-  transition: transform 160ms ease, filter 160ms ease;
+  transition: filter 160ms ease;
 }
 
 .facebook-share-button svg {
@@ -1759,7 +1762,6 @@ button {
 }
 
 .facebook-share-button:hover {
-  transform: translateY(-1px);
   filter: brightness(1.03);
 }
 
@@ -1963,6 +1965,7 @@ button {
     width: min(84vw, 350px);
   }
 
+  .share-layout > .primary-button,
   .share-layout > .text-button,
   .share-layout > .error-message {
     margin: 0;
