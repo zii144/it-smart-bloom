@@ -2128,6 +2128,148 @@ button {
   }
 }
 
+.dev-settings-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 80;
+  display: grid;
+  place-items: center;
+  padding: 20px;
+  background:
+    linear-gradient(180deg, rgba(36, 61, 55, 0.28), rgba(36, 61, 55, 0.5)),
+    radial-gradient(circle at top, rgba(239, 189, 85, 0.18), transparent 55%);
+  backdrop-filter: blur(6px);
+}
+
+.dev-settings-modal {
+  width: min(100%, 420px);
+  max-height: min(90vh, 720px);
+  overflow: auto;
+  padding: 22px 22px 18px;
+  border: 1px solid var(--line);
+  border-radius: 28px;
+  background:
+    linear-gradient(165deg, rgba(255, 250, 240, 0.98), rgba(251, 244, 223, 0.96));
+  box-shadow: 0 24px 60px rgba(36, 61, 55, 0.22);
+  color: var(--ink);
+}
+
+.dev-settings-header .eyebrow {
+  margin: 0 0 6px;
+}
+
+.dev-settings-header h2 {
+  margin: 0;
+  font-family: var(--serif);
+  font-size: 28px;
+  line-height: 1.15;
+}
+
+.dev-settings-header p {
+  margin: 8px 0 0;
+  color: var(--ink-soft);
+  font-size: 13px;
+  line-height: 1.5;
+}
+
+.dev-settings-warning {
+  margin: 14px 0 0;
+  padding: 10px 12px;
+  border-radius: 14px;
+  background: rgba(217, 110, 89, 0.14);
+  color: var(--coral-dark);
+  font-size: 13px;
+  font-weight: 600;
+}
+
+.dev-settings-form {
+  display: grid;
+  gap: 14px;
+  margin-top: 18px;
+}
+
+.dev-settings-field {
+  display: grid;
+  gap: 6px;
+}
+
+.dev-settings-field > span {
+  font-size: 12px;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+}
+
+.dev-settings-field select,
+.dev-settings-field input[type="range"] {
+  width: 100%;
+}
+
+.dev-settings-field select {
+  appearance: none;
+  padding: 12px 14px;
+  border: 1px solid var(--line);
+  border-radius: 14px;
+  background:
+    linear-gradient(180deg, #fffdf8, #f7efe0);
+  color: var(--ink);
+  font: inherit;
+}
+
+.dev-settings-field small {
+  color: var(--ink-soft);
+  font-size: 11px;
+}
+
+.dev-settings-summary {
+  display: grid;
+  gap: 6px;
+  padding: 12px 14px;
+  border-radius: 16px;
+  background: rgba(143, 174, 146, 0.16);
+}
+
+.dev-settings-summary strong {
+  font-size: 12px;
+}
+
+.dev-settings-summary code {
+  font-size: 12px;
+  word-break: break-word;
+  color: var(--ink-soft);
+}
+
+.dev-settings-actions {
+  display: flex;
+  gap: 10px;
+  justify-content: flex-end;
+  margin-top: 4px;
+}
+
+.dev-settings-actions .primary-button,
+.dev-settings-actions .secondary-button {
+  min-width: 0;
+  width: auto;
+  padding-inline: 18px;
+}
+
+.dev-regen-button {
+  margin-top: 14px;
+  padding: 10px 14px;
+  border: 1px dashed rgba(36, 61, 55, 0.28);
+  border-radius: 999px;
+  background: rgba(255, 250, 240, 0.7);
+  color: var(--ink-soft);
+  font: inherit;
+  font-size: 12px;
+  font-weight: 700;
+  cursor: pointer;
+}
+
+.dev-regen-button:hover {
+  color: var(--ink);
+  border-color: rgba(36, 61, 55, 0.45);
+}
+
 @media (prefers-reduced-motion: reduce) {
   *,
   *::before,
