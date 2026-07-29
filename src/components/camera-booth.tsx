@@ -178,7 +178,7 @@ export function CameraBooth({
         }
       });
     } catch (error) {
-      console.error("[bloom] getUserMedia failed", error);
+      console.warn("[bloom] getUserMedia failed", error);
       setError(describeCameraError(error));
     }
   }

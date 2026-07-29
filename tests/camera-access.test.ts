@@ -5,6 +5,11 @@ import {
   requestUserCamera,
 } from "@/lib/camera-access";
 
+/** Safari and Firefox expose OverconstrainedError outside the DOMException tree. */
+function overconstrainedError(constraint = "") {
+  return { name: "OverconstrainedError", message: "Invalid constraint", constraint };
+}
+
 afterEach(() => {
   vi.unstubAllGlobals();
 });
@@ -17,50 +22,67 @@ describe("describeCameraError", () => {
     ).toMatch(/HTTPS|localhost|192\.168/);
   });
 
-  it("does not call permission-blocked copy for NotFoundError", () => {
+  it("treats OverconstrainedError as an unavailable camera, not a block", () => {
     vi.stubGlobal("window", { isSecureContext: true });
-    expect(
-      describeCameraError(new DOMException("missing", "NotFoundError")),
-    ).toMatch(/找不到相機/);
-    expect(
-      describeCameraError(new DOMException("missing", "NotFoundError")),
-    ).not.toMatch(/權限遭到封鎖/);
+    const message = describeCameraError(overconstrainedError());
+    expect(message).toMatch(/取不到相機/);
+    expect(message).not.toMatch(/權限遭到封鎖/);
   });
 
-  it("explains permission denial with site-settings guidance", () => {
+  it("includes the failing constraint name when provided", () => {
+    vi.stubGlobal("window", { isSecureContext: true });
+    expect(describeCameraError(overconstrainedError("width"))).toMatch(
+      /（width）/,
+    );
+  });
+
+  it("still explains genuine permission denial", () => {
     vi.stubGlobal("window", { isSecureContext: true });
     expect(
       describeCameraError(new DOMException("denied", "NotAllowedError")),
     ).toMatch(/鎖頭|網站設定/);
   });
+
+  it("names unexpected errors instead of guessing", () => {
+    vi.stubGlobal("window", { isSecureContext: true });
+    expect(describeCameraError({ name: "AbortError" })).toMatch(/AbortError/);
+  });
 });
 
 describe("requestUserCamera", () => {
-  it("starts with soft facingMode and no hard resolution", () => {
+  it("asks for a soft front camera with no size constraints first", () => {
     expect(CAMERA_CONSTRAINT_ATTEMPTS[0]).toEqual({
       video: { facingMode: { ideal: "user" } },
       audio: false,
     });
+    expect(CAMERA_CONSTRAINT_ATTEMPTS.at(-1)).toEqual({
+      video: true,
+      audio: false,
+    });
   });
 
-  it("falls back when early constraints fail as NotFoundError", async () => {
+  it("retries plain video after a non-DOMException OverconstrainedError", async () => {
     const stream = { id: "ok" } as unknown as MediaStream;
     const getUserMedia = vi
       .fn()
-      .mockRejectedValueOnce(new DOMException("a", "NotFoundError"))
+      .mockRejectedValueOnce(overconstrainedError("facingMode"))
       .mockResolvedValueOnce(stream);
 
     await expect(
       requestUserCamera({ getUserMedia, isSecureContext: true }),
     ).resolves.toBe(stream);
-    expect(getUserMedia).toHaveBeenCalledTimes(2);
-    expect(getUserMedia).toHaveBeenNthCalledWith(
-      1,
-      CAMERA_CONSTRAINT_ATTEMPTS[0],
-    );
-    expect(getUserMedia).toHaveBeenNthCalledWith(
-      2,
-      CAMERA_CONSTRAINT_ATTEMPTS[1],
+    expect(getUserMedia).toHaveBeenNthCalledWith(2, { video: true, audio: false });
+  });
+
+  it("surfaces the last failure when every attempt fails", async () => {
+    const failure = overconstrainedError();
+    const getUserMedia = vi.fn().mockRejectedValue(failure);
+
+    await expect(
+      requestUserCamera({ getUserMedia, isSecureContext: true }),
+    ).rejects.toBe(failure);
+    expect(getUserMedia).toHaveBeenCalledTimes(
+      CAMERA_CONSTRAINT_ATTEMPTS.length,
     );
   });
 
