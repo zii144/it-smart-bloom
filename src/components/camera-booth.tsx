@@ -9,6 +9,10 @@ import {
 } from "react";
 import { BloomMark } from "@/components/brand";
 import { DevImageSettingsModal } from "@/components/dev-image-settings-modal";
+import {
+  describeCameraError,
+  requestUserCamera,
+} from "@/lib/camera-access";
 import type { ImageGenerationOptions } from "@/lib/image-options";
 import { buildLineShareUrl } from "@/lib/line-share";
 
@@ -159,14 +163,7 @@ export function CameraBooth({
     }
 
     try {
-      const stream = await navigator.mediaDevices.getUserMedia({
-        video: {
-          facingMode: "user",
-          width: { ideal: 1280 },
-          height: { ideal: 1280 },
-        },
-        audio: false,
-      });
+      const stream = await requestUserCamera();
       streamRef.current = stream;
       setStep("camera");
 
@@ -175,10 +172,8 @@ export function CameraBooth({
           videoRef.current.srcObject = stream;
         }
       });
-    } catch {
-      setError(
-        "相機權限遭到封鎖，請允許相機存取後再試一次。",
-      );
+    } catch (error) {
+      setError(describeCameraError(error));
     }
   }
 
