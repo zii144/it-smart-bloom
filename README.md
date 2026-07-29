@@ -72,14 +72,13 @@ device testing, an HTTPS URL is recommended.
 
 ## Storage and deployment
 
-The current implementation stores source and generated images under
-`.data/sessions` on the local filesystem. This is suitable for local development
-and a single persistent Node.js host.
+Local development stores source and generated images under `.data/sessions`
+(or `BLOOM_DATA_DIR`). On Vercel the writable root is `/tmp/bloom-sessions`.
 
-Before a serverless or multi-instance production deployment, replace the
-filesystem session layer with shared object storage and a shared database or
-key-value store. Keep the session ID, 15-minute expiry, and server-only OpenAI
-request boundaries unchanged.
+Because serverless isolates do not share `/tmp`, production also mirrors each
+session into Firestore + Firebase Storage **before** returning the booth QR
+response. Phone polls and image fetches fall back to that archive when the
+local disk copy is missing.
 
 ## Validation
 

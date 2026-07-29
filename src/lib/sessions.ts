@@ -41,9 +41,17 @@ export type ImageSession = {
 };
 
 function sessionsRoot() {
-  return process.env.BLOOM_DATA_DIR
-    ? path.resolve(process.env.BLOOM_DATA_DIR)
-    : path.join(process.cwd(), ".data", "sessions");
+  if (process.env.BLOOM_DATA_DIR?.trim()) {
+    return path.resolve(process.env.BLOOM_DATA_DIR.trim());
+  }
+
+  // Vercel / Lambda only allow writes under /tmp. Creating `.data` under
+  // `/var/task` fails with ENOENT and was returning 500 on POST /api/sessions.
+  if (process.env.VERCEL || process.env.AWS_LAMBDA_FUNCTION_NAME) {
+    return path.join("/tmp", "bloom-sessions");
+  }
+
+  return path.join(process.cwd(), ".data", "sessions");
 }
 
 function assertSessionId(id: string) {
@@ -69,11 +77,88 @@ function outputPath(id: string) {
   return path.join(sessionDirectory(id), "result");
 }
 
+function isEnoent(error: unknown) {
+  return (
+    typeof error === "object" &&
+    error !== null &&
+    "code" in error &&
+    error.code === "ENOENT"
+  );
+}
+
 async function writeMetadata(session: ImageSession) {
+  const directory = sessionDirectory(session.id);
+  await mkdir(directory, { recursive: true });
   const target = metadataPath(session.id);
   const temporary = `${target}.${randomBytes(6).toString("hex")}.tmp`;
   await writeFile(temporary, JSON.stringify(session, null, 2));
   await rename(temporary, target);
+}
+
+async function readLocalMetadata(id: string): Promise<ImageSession> {
+  return JSON.parse(await readFile(metadataPath(id), "utf8")) as ImageSession;
+}
+
+function sessionFromArchive(record: {
+  sessionId: string;
+  status: SessionStatus;
+  createdAt: string;
+  expiresAt?: string | null;
+  generationStartedAt?: string | null;
+  error?: string | null;
+  inputMime: string;
+  resultMime?: string | null;
+  generationOptions?: ImageSession["generationOptions"] | null;
+  identityKind?: "lineId" | "mobile" | null;
+  identityValue?: string | null;
+  claimedAt?: string | null;
+}): ImageSession {
+  const session: ImageSession = {
+    id: record.sessionId,
+    createdAt: record.createdAt,
+    expiresAt:
+      record.expiresAt ??
+      new Date(Date.parse(record.createdAt) + SESSION_TTL_MS).toISOString(),
+    status: record.status,
+    inputMime: record.inputMime,
+  };
+
+  if (record.resultMime) session.resultMime = record.resultMime;
+  if (record.error) session.error = record.error;
+  if (record.generationStartedAt) {
+    session.generationStartedAt = record.generationStartedAt;
+  }
+  if (record.generationOptions) {
+    session.generationOptions = record.generationOptions;
+  }
+  if (record.identityKind && record.identityValue && record.claimedAt) {
+    session.identity = {
+      kind: record.identityKind,
+      value: record.identityValue,
+      claimedAt: record.claimedAt,
+    };
+  }
+
+  return session;
+}
+
+async function loadSessionFromArchive(id: string): Promise<ImageSession | null> {
+  // Lazy import avoids a hard cycle at module init (archive imports ImageSession).
+  const { readArchiveRecord } = await import("@/lib/portrait-archive");
+  const record = await readArchiveRecord(id);
+  if (!record?.sessionId) return null;
+  return sessionFromArchive(record);
+}
+
+async function cacheSessionLocally(session: ImageSession) {
+  try {
+    await writeMetadata(session);
+  } catch (error) {
+    console.warn(
+      `[sessions] could not cache metadata for ${session.id} locally:`,
+      error,
+    );
+  }
 }
 
 function hasExpectedSignature(bytes: Buffer, mime: string) {
@@ -146,27 +231,26 @@ export async function createSession(
 }
 
 export async function getSession(id: string) {
-  try {
-    const session = JSON.parse(
-      await readFile(metadataPath(id), "utf8"),
-    ) as ImageSession;
+  assertSessionId(id);
 
-    return session;
+  try {
+    return await readLocalMetadata(id);
   } catch (error) {
     if (error instanceof SessionError) {
       throw error;
     }
 
-    if (
-      typeof error === "object" &&
-      error !== null &&
-      "code" in error &&
-      error.code === "ENOENT"
-    ) {
-      throw new SessionError("找不到這個創作空間。", 404);
+    if (!isEnoent(error)) {
+      throw error;
     }
 
-    throw error;
+    const archived = await loadSessionFromArchive(id);
+    if (archived) {
+      await cacheSessionLocally(archived);
+      return archived;
+    }
+
+    throw new SessionError("找不到這個創作空間。", 404);
   }
 }
 
@@ -176,16 +260,43 @@ export async function updateSession(
 ) {
   const current = await getSession(id);
   const next = { ...current, ...changes };
-  await writeMetadata(next);
+  await cacheSessionLocally(next);
   return next;
 }
 
 export async function readInputImage(id: string) {
   const session = await getSession(id);
-  return {
-    bytes: await readFile(inputPath(id)),
-    mime: session.inputMime,
-  };
+
+  try {
+    return {
+      bytes: await readFile(inputPath(id)),
+      mime: session.inputMime,
+    };
+  } catch (error) {
+    if (!isEnoent(error)) throw error;
+
+    const { readArchiveImage, readArchiveRecord } = await import(
+      "@/lib/portrait-archive"
+    );
+    const record = await readArchiveRecord(id);
+    const objectPath = record?.storage.inputPath;
+    if (!objectPath) {
+      throw new SessionError("找不到這個創作空間的照片。", 404);
+    }
+    const archived = await readArchiveImage(objectPath);
+    if (!archived) {
+      throw new SessionError("找不到這個創作空間的照片。", 404);
+    }
+
+    try {
+      await mkdir(sessionDirectory(id), { recursive: true });
+      await writeFile(inputPath(id), archived.bytes);
+    } catch {
+      // Cache miss is fine — caller still gets the bytes.
+    }
+
+    return { bytes: archived.bytes, mime: archived.mime || session.inputMime };
+  }
 }
 
 export async function writeResultImage(
@@ -193,7 +304,13 @@ export async function writeResultImage(
   bytes: Buffer,
   mime: string,
 ) {
-  await writeFile(outputPath(id), bytes);
+  try {
+    await mkdir(sessionDirectory(id), { recursive: true });
+    await writeFile(outputPath(id), bytes);
+  } catch (error) {
+    console.warn(`[sessions] could not cache result for ${id} locally:`, error);
+  }
+
   return updateSession(id, {
     status: "complete",
     resultMime: mime,
@@ -215,7 +332,31 @@ export async function readResultImage(id: string) {
       size: fileInfo.size,
     };
   } catch {
-    throw new SessionError("目前無法取得專屬人像。", 404);
+    const { readArchiveImage, readArchiveRecord } = await import(
+      "@/lib/portrait-archive"
+    );
+    const record = await readArchiveRecord(id);
+    const objectPath = record?.storage.resultPath;
+    if (!objectPath) {
+      throw new SessionError("目前無法取得專屬人像。", 404);
+    }
+    const archived = await readArchiveImage(objectPath);
+    if (!archived) {
+      throw new SessionError("目前無法取得專屬人像。", 404);
+    }
+
+    try {
+      await mkdir(sessionDirectory(id), { recursive: true });
+      await writeFile(outputPath(id), archived.bytes);
+    } catch {
+      // ignore cache write failures
+    }
+
+    return {
+      bytes: archived.bytes,
+      mime: archived.mime || session.resultMime,
+      size: archived.bytes.length,
+    };
   }
 }
 

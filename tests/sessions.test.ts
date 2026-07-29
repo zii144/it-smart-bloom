@@ -1,6 +1,6 @@
 import { rm } from "node:fs/promises";
 import path from "node:path";
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import {
   createSession,
   getSession,
@@ -289,5 +289,80 @@ describe("publicSession", () => {
       "startedAt",
       "status",
     ]);
+  });
+});
+
+describe("serverless session storage", () => {
+  it("defaults to /tmp on Vercel when BLOOM_DATA_DIR is unset", async () => {
+    const { sessionsDataDir } = await import("@/lib/sessions");
+    const originalDir = process.env.BLOOM_DATA_DIR;
+    const originalVercel = process.env.VERCEL;
+    delete process.env.BLOOM_DATA_DIR;
+    process.env.VERCEL = "1";
+
+    expect(sessionsDataDir()).toBe("/tmp/bloom-sessions");
+
+    process.env.BLOOM_DATA_DIR = originalDir;
+    if (originalVercel === undefined) delete process.env.VERCEL;
+    else process.env.VERCEL = originalVercel;
+  });
+
+  it("hydrates from the Firebase archive when local disk has no copy", async () => {
+    const created = await createSession(imageFile(jpegBytes(64)));
+    const input = await readInputImage(created.id);
+
+    await rm(path.join(process.env.BLOOM_DATA_DIR!, created.id), {
+      recursive: true,
+      force: true,
+    });
+
+    vi.resetModules();
+    vi.doMock("@/lib/portrait-archive", () => ({
+      readArchiveRecord: vi.fn(async () => ({
+        sessionId: created.id,
+        status: "ready",
+        createdAt: created.createdAt,
+        expiresAt: created.expiresAt,
+        updatedAt: created.createdAt,
+        generationStartedAt: null,
+        error: null,
+        inputMime: created.inputMime,
+        resultMime: null,
+        generationOptions: null,
+        identityKind: null,
+        identityValue: null,
+        identityKey: null,
+        claimedAt: null,
+        avatarRequestedAt: null,
+        avatarRequestStatus: "idle",
+        avatarRequestError: null,
+        storage: {
+          inputPath: `sessions/${created.id}/input`,
+          resultPath: null,
+          identityInputPath: null,
+          identityResultPath: null,
+        },
+      })),
+      readArchiveImage: vi.fn(async () => ({
+        bytes: input.bytes,
+        mime: input.mime,
+      })),
+    }));
+
+    const {
+      getSession: getSessionFresh,
+      readInputImage: readInputFresh,
+    } = await import("@/lib/sessions");
+
+    await expect(getSessionFresh(created.id)).resolves.toMatchObject({
+      id: created.id,
+      status: "ready",
+    });
+    await expect(readInputFresh(created.id)).resolves.toMatchObject({
+      mime: "image/jpeg",
+    });
+
+    vi.doUnmock("@/lib/portrait-archive");
+    vi.resetModules();
   });
 });
