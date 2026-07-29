@@ -67,10 +67,98 @@ export function describeCameraError(error: unknown): string {
     : "無法開啟相機，請再試一次。";
 }
 
+export const CAMERA_DEVICE_PREF_KEY = "bloom.camera.deviceId";
+
+/**
+ * `facingMode: "user"` cannot disambiguate desktop cameras, so a Mac paired
+ * with an iPhone often hands the booth the Continuity camera (which streams a
+ * blank frame while the phone sits on a desk). Labels are only populated once
+ * permission is granted, so scoring runs after the first successful open.
+ */
+const BUILT_IN_LABEL =
+  /facetime|built-?in|integrated|internal|webcam|內建|前置|front/i;
+const AVOID_LABEL =
+  /continuity|desk view|virtual|obs|snap|manycam|epoccam|droidcam|iriun|ndi|back|rear|後置|environment/i;
+
+export function pickPreferredCamera(devices: MediaDeviceInfo[]): string | null {
+  let best: { deviceId: string; score: number } | null = null;
+
+  for (const device of devices) {
+    if (device.kind !== "videoinput" || !device.label || !device.deviceId) {
+      continue;
+    }
+
+    let score = 0;
+    if (BUILT_IN_LABEL.test(device.label)) score += 3;
+    if (AVOID_LABEL.test(device.label)) score -= 3;
+
+    if (score > 0 && (!best || score > best.score)) {
+      best = { deviceId: device.deviceId, score };
+    }
+  }
+
+  return best?.deviceId ?? null;
+}
+
+export function readCameraPreference(): string | null {
+  try {
+    return window.localStorage.getItem(CAMERA_DEVICE_PREF_KEY) || null;
+  } catch {
+    return null;
+  }
+}
+
+export function writeCameraPreference(deviceId: string | null) {
+  try {
+    if (deviceId) {
+      window.localStorage.setItem(CAMERA_DEVICE_PREF_KEY, deviceId);
+    } else {
+      window.localStorage.removeItem(CAMERA_DEVICE_PREF_KEY);
+    }
+  } catch {
+    // private mode / blocked storage
+  }
+}
+
+export function activeDeviceId(stream: MediaStream): string | null {
+  const track = stream.getVideoTracks?.()[0];
+  return track?.getSettings?.().deviceId ?? null;
+}
+
 type CameraAccessDeps = {
   getUserMedia?: MediaDevices["getUserMedia"];
+  enumerateDevices?: MediaDevices["enumerateDevices"];
   isSecureContext?: boolean;
+  deviceId?: string | null;
 };
+
+function deviceConstraints(deviceId: string): MediaStreamConstraints {
+  return { video: { deviceId: { exact: deviceId } }, audio: false };
+}
+
+/** Swap a Continuity/virtual camera for the built-in one, if we can spot it. */
+async function preferBuiltInCamera(
+  stream: MediaStream,
+  getUserMedia: MediaDevices["getUserMedia"],
+  enumerateDevices: MediaDevices["enumerateDevices"],
+): Promise<MediaStream> {
+  try {
+    const cameras = (await enumerateDevices()).filter(
+      (device) => device.kind === "videoinput",
+    );
+    if (cameras.length < 2) return stream;
+
+    const preferred = pickPreferredCamera(cameras);
+    if (!preferred || preferred === activeDeviceId(stream)) return stream;
+
+    const next = await getUserMedia(deviceConstraints(preferred));
+    stream.getTracks().forEach((track) => track.stop());
+    return next;
+  } catch {
+    // Keep whatever the browser already gave us.
+    return stream;
+  }
+}
 
 export async function requestUserCamera(
   deps: CameraAccessDeps = {},
@@ -89,21 +177,38 @@ export async function requestUserCamera(
   const getUserMedia =
     deps.getUserMedia ??
     navigator.mediaDevices.getUserMedia.bind(navigator.mediaDevices);
+  const enumerateDevices =
+    deps.enumerateDevices ??
+    (typeof navigator !== "undefined" &&
+    typeof navigator.mediaDevices?.enumerateDevices === "function"
+      ? navigator.mediaDevices.enumerateDevices.bind(navigator.mediaDevices)
+      : null);
+
+  const chosen =
+    deps.deviceId ?? (typeof window !== "undefined" ? readCameraPreference() : null);
+  const attempts = chosen
+    ? [deviceConstraints(chosen), ...CAMERA_CONSTRAINT_ATTEMPTS]
+    : CAMERA_CONSTRAINT_ATTEMPTS;
 
   let lastError: unknown = new DOMException(
     "No camera constraints succeeded.",
     "NotFoundError",
   );
 
-  for (const constraints of CAMERA_CONSTRAINT_ATTEMPTS) {
+  for (const constraints of attempts) {
+    let stream: MediaStream;
     try {
-      return await getUserMedia(constraints);
+      stream = await getUserMedia(constraints);
     } catch (error) {
       lastError = error;
       if (FATAL_ERROR_NAMES.has(errorName(error))) {
         throw error;
       }
+      continue;
     }
+
+    if (chosen || !enumerateDevices) return stream;
+    return preferBuiltInCamera(stream, getUserMedia, enumerateDevices);
   }
 
   throw lastError;

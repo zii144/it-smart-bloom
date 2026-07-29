@@ -10,8 +10,10 @@ import {
 import { BloomMark } from "@/components/brand";
 import { DevImageSettingsModal } from "@/components/dev-image-settings-modal";
 import {
+  activeDeviceId,
   describeCameraError,
   requestUserCamera,
+  writeCameraPreference,
 } from "@/lib/camera-access";
 import type { ImageGenerationOptions } from "@/lib/image-options";
 import { buildLineShareUrl } from "@/lib/line-share";
@@ -28,6 +30,8 @@ type SessionPayload = {
 };
 
 type BoothStep = "intro" | "camera" | "preview" | "sharing";
+
+type CameraOption = { deviceId: string; label: string };
 
 function CameraIcon() {
   return (
@@ -113,6 +117,9 @@ export function CameraBooth({
   const [showSettings, setShowSettings] = useState(false);
   const [tuningOptions, setTuningOptions] =
     useState<ImageGenerationOptions | null>(null);
+  const [cameras, setCameras] = useState<CameraOption[]>([]);
+  const [currentCameraId, setCurrentCameraId] = useState<string | null>(null);
+  const [streamEpoch, setStreamEpoch] = useState(0);
   const videoRef = useRef<HTMLVideoElement>(null);
   const streamRef = useRef<MediaStream | null>(null);
   const stopCamera = useCallback(() => {
@@ -145,7 +152,7 @@ export function CameraBooth({
     void Promise.resolve(video.play()).catch((caught) => {
       console.warn("[bloom] video.play() rejected", caught);
     });
-  }, [step]);
+  }, [step, streamEpoch]);
 
   useEffect(() => {
     if (!session || step !== "sharing") return;
@@ -190,8 +197,44 @@ export function CameraBooth({
       const stream = await requestUserCamera();
       streamRef.current = stream;
       setStep("camera");
+      setStreamEpoch((epoch) => epoch + 1);
+      void refreshCameras(stream);
     } catch (error) {
       console.warn("[bloom] getUserMedia failed", error);
+      setError(describeCameraError(error));
+    }
+  }
+
+  async function refreshCameras(stream: MediaStream) {
+    setCurrentCameraId(activeDeviceId(stream));
+
+    try {
+      const devices = await navigator.mediaDevices.enumerateDevices();
+      setCameras(
+        devices
+          .filter((device) => device.kind === "videoinput" && device.deviceId)
+          .map((device, index) => ({
+            deviceId: device.deviceId,
+            label: device.label || `相機 ${index + 1}`,
+          })),
+      );
+    } catch {
+      // Device listing is a convenience; the booth still works without it.
+    }
+  }
+
+  async function switchCamera(deviceId: string) {
+    setError(null);
+
+    try {
+      const stream = await requestUserCamera({ deviceId });
+      stopCamera();
+      streamRef.current = stream;
+      writeCameraPreference(deviceId);
+      setCurrentCameraId(activeDeviceId(stream) ?? deviceId);
+      setStreamEpoch((epoch) => epoch + 1);
+    } catch (error) {
+      console.warn("[bloom] camera switch failed", error);
       setError(describeCameraError(error));
     }
   }
@@ -432,6 +475,22 @@ export function CameraBooth({
                 </div>
               )}
             </div>
+            {cameras.length > 1 && (
+              <label className="camera-picker">
+                <span>鏡頭</span>
+                <select
+                  value={currentCameraId ?? ""}
+                  onChange={(event) => void switchCamera(event.target.value)}
+                >
+                  {currentCameraId === null && <option value="">預設鏡頭</option>}
+                  {cameras.map((camera) => (
+                    <option key={camera.deviceId} value={camera.deviceId}>
+                      {camera.label}
+                    </option>
+                  ))}
+                </select>
+              </label>
+            )}
             <button
               className="shutter"
               onClick={capturePhoto}
