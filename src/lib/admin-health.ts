@@ -3,6 +3,7 @@ import {
   isFirebaseEmulator,
 } from "@/lib/firebase-admin";
 import { isImageTuningEnabled } from "@/lib/runtime-env";
+import { sessionsDataDir } from "@/lib/sessions";
 
 export type AdminHealth = {
   firebaseConfigured: boolean;
@@ -20,10 +21,6 @@ export type AdminHealth = {
 };
 
 export function getAdminHealth(): AdminHealth {
-  const dataDir = process.env.BLOOM_DATA_DIR?.trim()
-    ? process.env.BLOOM_DATA_DIR.trim()
-    : ".data/sessions";
-
   return {
     firebaseConfigured: isFirebaseConfigured(),
     firebaseEmulator: isFirebaseEmulator(),
@@ -43,6 +40,6 @@ export function getAdminHealth(): AdminHealth {
     hasRoadTeacherKey: Boolean(
       process.env.ROAD_TEACHER_AVATAR_API_KEY?.trim(),
     ),
-    dataDir,
+    dataDir: sessionsDataDir(),
   };
 }

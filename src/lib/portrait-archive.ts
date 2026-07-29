@@ -7,11 +7,13 @@ export type ArchiveRecord = {
   sessionId: string;
   status: SessionStatus;
   createdAt: string;
+  expiresAt: string | null;
   updatedAt: string;
   generationStartedAt: string | null;
   error: string | null;
   inputMime: string;
   resultMime: string | null;
+  generationOptions: ImageSession["generationOptions"] | null;
   identityKind: GuestIdentity["kind"] | null;
   identityValue: string | null;
   identityKey: string | null;
@@ -78,11 +80,13 @@ export async function archiveSessionCreated(session: ImageSession, input: {
     sessionId: session.id,
     status: session.status,
     createdAt: session.createdAt,
+    expiresAt: session.expiresAt,
     updatedAt: now,
     generationStartedAt: session.generationStartedAt ?? null,
     error: session.error ?? null,
     inputMime: session.inputMime,
     resultMime: session.resultMime ?? null,
+    generationOptions: session.generationOptions ?? null,
     identityKind: null,
     identityValue: null,
     identityKey: null,
@@ -133,10 +137,12 @@ export async function archiveSessionStatus(
   await doc.set(
     {
       status: session.status,
+      expiresAt: session.expiresAt,
       updatedAt: new Date().toISOString(),
       generationStartedAt: session.generationStartedAt ?? null,
       error: session.error ?? null,
       resultMime: session.resultMime ?? result?.mime ?? null,
+      generationOptions: session.generationOptions ?? null,
       storage: {
         inputPath: existing?.storage.inputPath ?? null,
         resultPath,

@@ -45,16 +45,17 @@ export async function POST(request: Request) {
 
     const session = await createSession(image, generationOptions);
 
-    // Mirror the capture into Firestore/Storage for long-term developer lookup.
-    // Identity is filled in later from the phone claim form.
-    after(async () => {
-      try {
-        const input = await readInputImage(session.id);
-        await archiveSessionCreated(session, input);
-      } catch (error) {
-        console.error("Failed to archive session:", error);
-      }
-    });
+    // Persist to Firestore/Storage before the response so other serverless
+    // instances (phone poll / image fetch) can find the session. `/tmp` is
+    // not shared across Vercel isolates.
+    try {
+      const input = await readInputImage(session.id);
+      await archiveSessionCreated(session, input);
+    } catch (error) {
+      console.error("Failed to archive session:", error);
+      // Still return the booth session when local disk succeeded; generation
+      // may keep working on this isolate. Phone recovery needs Firebase though.
+    }
 
     // The phone is only a viewer: start rendering as soon as the photo exists so
     // the portrait is already on its way while the guest is still scanning the QR.
