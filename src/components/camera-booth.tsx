@@ -128,6 +128,25 @@ export function CameraBooth({
     };
   }, [previewUrl, stopCamera]);
 
+  // Attaching in a layout-safe effect (instead of requestAnimationFrame after
+  // setStep) guarantees the element exists, and iOS Safari needs the explicit
+  // play() call before it renders frames from a srcObject stream.
+  useEffect(() => {
+    if (step !== "camera") return;
+
+    const video = videoRef.current;
+    const stream = streamRef.current;
+    if (!video || !stream) return;
+
+    if (video.srcObject !== stream) {
+      video.srcObject = stream;
+    }
+
+    void Promise.resolve(video.play()).catch((caught) => {
+      console.warn("[bloom] video.play() rejected", caught);
+    });
+  }, [step]);
+
   useEffect(() => {
     if (!session || step !== "sharing") return;
 
@@ -171,12 +190,6 @@ export function CameraBooth({
       const stream = await requestUserCamera();
       streamRef.current = stream;
       setStep("camera");
-
-      window.requestAnimationFrame(() => {
-        if (videoRef.current) {
-          videoRef.current.srcObject = stream;
-        }
-      });
     } catch (error) {
       console.warn("[bloom] getUserMedia failed", error);
       setError(describeCameraError(error));
@@ -407,7 +420,9 @@ export function CameraBooth({
                 autoPlay
                 playsInline
                 muted
+                onLoadedMetadata={() => setCameraReady(true)}
                 onCanPlay={() => setCameraReady(true)}
+                onPlaying={() => setCameraReady(true)}
               />
               <div className="camera-guide" />
               {!cameraReady && (
