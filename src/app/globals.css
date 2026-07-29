@@ -920,6 +920,17 @@ button {
   background: var(--paper);
 }
 
+.intro-actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 12px;
+}
+
+.photo-picker-button {
+  user-select: none;
+}
+
 .button-icon {
   position: relative;
   display: grid;

@@ -110,10 +110,12 @@ export function CameraBooth({
   const [session, setSession] = useState<SessionPayload | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [cameraReady, setCameraReady] = useState(false);
+  const [photoSource, setPhotoSource] = useState<"camera" | "file" | null>(null);
   const [showSettings, setShowSettings] = useState(false);
   const [tuningOptions, setTuningOptions] =
     useState<ImageGenerationOptions | null>(null);
   const videoRef = useRef<HTMLVideoElement>(null);
+  const photoInputRef = useRef<HTMLInputElement>(null);
   const streamRef = useRef<MediaStream | null>(null);
   const stopCamera = useCallback(() => {
     streamRef.current?.getTracks().forEach((track) => track.stop());
@@ -177,6 +179,22 @@ export function CameraBooth({
     }
   }
 
+  function choosePhoto(file: File | null) {
+    if (!file) return;
+    if (!["image/jpeg", "image/png", "image/webp"].includes(file.type)) {
+      setError("請選擇 JPG、PNG 或 WebP 圖片。");
+      return;
+    }
+
+    if (previewUrl) URL.revokeObjectURL(previewUrl);
+    stopCamera();
+    setError(null);
+    setPhoto(file);
+    setPhotoSource("file");
+    setPreviewUrl(URL.createObjectURL(file));
+    setStep("preview");
+  }
+
   function capturePhoto() {
     const video = videoRef.current;
     if (!video || video.videoWidth === 0 || video.videoHeight === 0) return;
@@ -213,6 +231,7 @@ export function CameraBooth({
         }
         if (previewUrl) URL.revokeObjectURL(previewUrl);
         setPhoto(blob);
+        setPhotoSource("camera");
         setPreviewUrl(URL.createObjectURL(blob));
         stopCamera();
         setStep("preview");
@@ -224,8 +243,17 @@ export function CameraBooth({
 
   function retake() {
     setPhoto(null);
+    const previousSource = photoSource;
+    setPhotoSource(null);
     if (previewUrl) URL.revokeObjectURL(previewUrl);
     setPreviewUrl(null);
+    if (previousSource === "file") {
+      if (photoInputRef.current) {
+        photoInputRef.current.value = "";
+        photoInputRef.current.click();
+      }
+      return;
+    }
     void openCamera();
   }
 
@@ -321,15 +349,30 @@ export function CameraBooth({
                 為路老師留下溫暖而獨一無二的水彩人像。不需下載 App，
                 也不需註冊，只要感受這一刻的美好。
               </p>
-              <button className="primary-button" onClick={openCamera}>
-                <span className="button-icon">
-                  <CameraIcon />
-                </span>
-                開啟相機
-                <span className="button-arrow">
-                  <ArrowIcon />
-                </span>
-              </button>
+              <div className="intro-actions">
+                <button className="primary-button" onClick={openCamera}>
+                  <span className="button-icon">
+                    <CameraIcon />
+                  </span>
+                  開啟相機
+                  <span className="button-arrow">
+                    <ArrowIcon />
+                  </span>
+                </button>
+                <label className="secondary-button photo-picker-button">
+                  拍照或選擇照片
+                  <input
+                    ref={photoInputRef}
+                    type="file"
+                    accept="image/jpeg,image/png,image/webp"
+                    capture="user"
+                    hidden
+                    onChange={(event) =>
+                      choosePhoto(event.currentTarget.files?.[0] ?? null)
+                    }
+                  />
+                </label>
+              </div>
               {error && <p className="error-message">{error}</p>}
               <div className="step-row" aria-label="使用方式">
                 <div>
