@@ -12,6 +12,7 @@ import {
   type ImageGenerationOptions,
 } from "@/lib/image-options";
 
+/** @deprecated Cleared on open — never restore. Fake generate must be opt-in each time. */
 export const FAKE_GENERATE_PREF_KEY = "bloom.dev.fakeGenerate";
 
 type DevImageSettingsModalProps = {
@@ -31,38 +32,25 @@ const FALLBACK: ImageGenerationOptions = {
   fakeGenerate: false,
 };
 
-function readFakeGeneratePref(): boolean | null {
+function clearLegacyFakeGeneratePref() {
   try {
-    const raw = window.localStorage.getItem(FAKE_GENERATE_PREF_KEY);
-    if (raw === "1" || raw === "true") return true;
-    if (raw === "0" || raw === "false") return false;
+    window.localStorage.removeItem(FAKE_GENERATE_PREF_KEY);
   } catch {
     // private mode / blocked storage
   }
-  return null;
 }
 
-function writeFakeGeneratePref(value: boolean) {
-  try {
-    window.localStorage.setItem(FAKE_GENERATE_PREF_KEY, value ? "1" : "0");
-  } catch {
-    // ignore
-  }
-}
-
-function withStickyFakeGenerate(
+function withExplicitFakeGenerate(
   base: ImageGenerationOptions,
   initial?: ImageGenerationOptions | null,
 ): ImageGenerationOptions {
-  // Explicit booth state wins; otherwise restore the last demo preference.
+  // Only honor an in-memory choice for this open — never localStorage.
+  // Sticky "假生成" was silently shipping the fixture portrait to guests who
+  // scanned the LAN QR during local booth demos.
   if (initial && typeof initial.fakeGenerate === "boolean") {
     return { ...base, fakeGenerate: initial.fakeGenerate };
   }
-  const sticky = readFakeGeneratePref();
-  if (sticky !== null) {
-    return { ...base, fakeGenerate: sticky };
-  }
-  return base;
+  return { ...base, fakeGenerate: false };
 }
 
 export function DevImageSettingsModal({
@@ -76,7 +64,7 @@ export function DevImageSettingsModal({
   const [options, setOptions] = useState<ImageGenerationOptions>(() =>
     typeof window === "undefined"
       ? (initial ?? FALLBACK)
-      : withStickyFakeGenerate(initial ?? FALLBACK, initial),
+      : withExplicitFakeGenerate(initial ?? FALLBACK, initial),
   );
   const [hasApiKey, setHasApiKey] = useState(true);
   const [ready, setReady] = useState(Boolean(initial));
@@ -84,6 +72,7 @@ export function DevImageSettingsModal({
   useEffect(() => {
     if (!open) return;
 
+    clearLegacyFakeGeneratePref();
     let active = true;
 
     async function loadDefaults() {
@@ -93,7 +82,7 @@ export function DevImageSettingsModal({
         });
         if (!response.ok) {
           if (active) {
-            setOptions(withStickyFakeGenerate(initial ?? FALLBACK, initial));
+            setOptions(withExplicitFakeGenerate(initial ?? FALLBACK, initial));
             setReady(true);
           }
           return;
@@ -105,12 +94,12 @@ export function DevImageSettingsModal({
         if (!active) return;
         setHasApiKey(payload.hasApiKey);
         setOptions(
-          withStickyFakeGenerate(initial ?? payload.defaults, initial),
+          withExplicitFakeGenerate(initial ?? payload.defaults, initial),
         );
         setReady(true);
       } catch {
         if (active) {
-          setOptions(withStickyFakeGenerate(initial ?? FALLBACK, initial));
+          setOptions(withExplicitFakeGenerate(initial ?? FALLBACK, initial));
           setReady(true);
         }
       }
@@ -150,7 +139,6 @@ export function DevImageSettingsModal({
           className="dev-settings-form"
           onSubmit={(event) => {
             event.preventDefault();
-            writeFakeGeneratePref(options.fakeGenerate);
             onConfirm(options);
           }}
         >
@@ -161,7 +149,6 @@ export function DevImageSettingsModal({
               disabled={!ready}
               onChange={(event) => {
                 const fakeGenerate = event.target.checked;
-                writeFakeGeneratePref(fakeGenerate);
                 setOptions((current) => ({
                   ...current,
                   fakeGenerate,
@@ -171,7 +158,7 @@ export function DevImageSettingsModal({
             <span>
               <strong>假生成 Fake generate</strong>
               <small>
-                跳過 OpenAI，用示範人像走完整流程（約 1 秒，不花費 token）
+                僅此一次。跳過 OpenAI，用示範人像走完整流程（約 1 秒）。下次預設仍會走真生成，避免掃 QR 的訪客一直看到模擬結果。
               </small>
             </span>
           </label>

@@ -49,7 +49,7 @@ describe("DevImageSettingsModal — fake generate", () => {
     expect(screen.getByText(/流程測試模式/)).toBeTruthy();
   });
 
-  it("remembers the fake-generate preference in localStorage", async () => {
+  it("does not persist fake generate to localStorage", async () => {
     const user = userEvent.setup();
     const onConfirm = vi.fn();
     render(<DevImageSettingsModal open onConfirm={onConfirm} />);
@@ -58,17 +58,18 @@ describe("DevImageSettingsModal — fake generate", () => {
     await user.click(screen.getByRole("checkbox"));
     await user.click(screen.getByRole("button", { name: "假生成並繼續" }));
 
-    expect(window.localStorage.getItem(FAKE_GENERATE_PREF_KEY)).toBe("1");
+    expect(window.localStorage.getItem(FAKE_GENERATE_PREF_KEY)).toBeNull();
     expect(onConfirm).toHaveBeenCalledWith(
       expect.objectContaining({ fakeGenerate: true }),
     );
   });
 
-  it("restores the sticky preference on open", async () => {
+  it("clears a legacy sticky preference and defaults to real generate", async () => {
     window.localStorage.setItem(FAKE_GENERATE_PREF_KEY, "1");
     render(<DevImageSettingsModal open onConfirm={() => undefined} />);
 
     const checkbox = await screen.findByRole("checkbox");
-    expect((checkbox as HTMLInputElement).checked).toBe(true);
+    expect((checkbox as HTMLInputElement).checked).toBe(false);
+    expect(window.localStorage.getItem(FAKE_GENERATE_PREF_KEY)).toBeNull();
   });
 });

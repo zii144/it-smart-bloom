@@ -463,6 +463,11 @@ export function SessionExperience({
               <h1>一路走來的光，已然綻放。</h1>
               <p>儲存、分享，或一鍵套用到路老師系統大頭貼。</p>
             </div>
+            {session.generationOptions?.fakeGenerate && (
+              <p className="demo-mode-banner" role="status">
+                這是示範人像（假生成），不是依你的照片即時創作。請回到拍照裝置關閉「假生成」後重拍。
+              </p>
+            )}
             <div className="mobile-result">
               <Image
                 src={session.resultUrl!}

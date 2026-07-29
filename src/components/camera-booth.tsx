@@ -27,6 +27,7 @@ type SessionPayload = {
   error: string | null;
   sessionUrl: string;
   qrDataUrl: string;
+  generationOptions?: ImageGenerationOptions | null;
 };
 
 type BoothStep = "intro" | "camera" | "preview" | "sharing";
@@ -321,6 +322,9 @@ export function CameraBooth({
         throw new Error(payload.error || "無法建立人像創作連結。");
       }
 
+      // Force the next guest through the options modal again so a one-off
+      // "假生成" choice cannot silently stick for the rest of the booth day.
+      setTuningOptions(null);
       setSession(payload as SessionPayload);
     } catch (caught) {
       setError(
@@ -548,6 +552,11 @@ export function CameraBooth({
               </div>
             ) : (
               <>
+                {session.generationOptions?.fakeGenerate && (
+                  <p className="demo-mode-banner" role="status">
+                    示範模式：這次是假生成，掃 QR 會看到固定示範人像，不是這位訪客的真實結果。
+                  </p>
+                )}
                 <div className="share-copy">
                   <p className="eyebrow">接續在手機上體驗</p>
                   <h1>
@@ -566,7 +575,9 @@ export function CameraBooth({
                         session.status === "generating" ? "pulse-dot" : ""
                       }
                     />
-                    {session.status === "complete"
+                    {session.generationOptions?.fakeGenerate
+                      ? "示範人像已就緒・請勿當成正式結果"
+                      : session.status === "complete"
                       ? "手機端人像已完成・QR 仍可掃描"
                       : session.status === "generating"
                         ? "正在創作你的路老師似顏繪"
