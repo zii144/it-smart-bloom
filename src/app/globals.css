@@ -1285,6 +1285,31 @@ button {
   opacity: 0.45;
 }
 
+.camera-picker {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  margin-top: 18px;
+  color: var(--ink-soft);
+  font-size: 12px;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+}
+
+.camera-picker select {
+  max-width: 240px;
+  padding: 6px 10px;
+  color: var(--ink-soft);
+  border: 1px solid rgba(36, 67, 56, 0.22);
+  border-radius: 999px;
+  cursor: pointer;
+  background: rgba(255, 253, 247, 0.72);
+  font: inherit;
+  font-weight: 600;
+  letter-spacing: 0;
+  text-overflow: ellipsis;
+}
+
 .text-button {
   margin-top: 17px;
   padding: 8px 14px;
