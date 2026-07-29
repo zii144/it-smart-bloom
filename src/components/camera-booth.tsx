@@ -9,6 +9,10 @@ import {
 } from "react";
 import { BloomMark } from "@/components/brand";
 import { DevImageSettingsModal } from "@/components/dev-image-settings-modal";
+import {
+  describeCameraError,
+  requestUserCamera,
+} from "@/lib/camera-access";
 import type { ImageGenerationOptions } from "@/lib/image-options";
 import { buildLineShareUrl } from "@/lib/line-share";
 
@@ -153,20 +157,18 @@ export function CameraBooth({
   async function openCamera() {
     setError(null);
 
+    if (!window.isSecureContext) {
+      setError(describeCameraError(new DOMException("insecure", "SecurityError")));
+      return;
+    }
+
     if (!navigator.mediaDevices?.getUserMedia) {
       setError("此瀏覽器不支援相機功能。");
       return;
     }
 
     try {
-      const stream = await navigator.mediaDevices.getUserMedia({
-        video: {
-          facingMode: "user",
-          width: { ideal: 1280 },
-          height: { ideal: 1280 },
-        },
-        audio: false,
-      });
+      const stream = await requestUserCamera();
       streamRef.current = stream;
       setStep("camera");
 
@@ -175,8 +177,9 @@ export function CameraBooth({
           videoRef.current.srcObject = stream;
         }
       });
-    } catch {
-      setError("相機權限遭到封鎖，請允許相機存取後再試一次。");
+    } catch (error) {
+      console.error("[bloom] getUserMedia failed", error);
+      setError(describeCameraError(error));
     }
   }
 
