@@ -68,6 +68,28 @@ ADMIN_DASHBOARD_SECRET=choose-a-long-random-string
 
 Sign in with the password form, `?key=…` (exchanged for an httpOnly cookie), or HTTP Basic user `admin`. Shows Firebase/emulator health plus recent Firestore archive and local disk sessions.
 
+The **批次生成** tab renders a stack of photos in one go, using
+`OPENAI_IMAGE_SYSTEM_PROMPT` and the same model/quality/size defaults as the
+booth.
+
+### Daily spend ceiling
+
+Every guard in the batch panel is client-side. These env vars are the
+server-side one, checked before each OpenAI call and counted in Firestore
+(`usage/YYYY-MM-DD`, Taiwan time). All are optional; unset means no ceiling.
+
+```dotenv
+IMAGE_DAILY_LIMIT=200            # images per day
+IMAGE_DAILY_BUDGET_USD=40        # needs IMAGE_UNIT_COST_USD to mean anything
+IMAGE_UNIT_COST_USD=0.19         # or a table: {"low":…,"medium":…,"default":…}
+IMAGE_SPEND_ENFORCE=batch        # batch (default) | all — `all` also gates guests
+```
+
+Costs are estimates from prices you supply; this project ships no rate card.
+`IMAGE_SPEND_ENFORCE=batch` deliberately spares walk-up guests, so a blown
+budget never turns a live booth away — set `all` when the ceiling must be
+absolute. Renders are counted on attempt, so a failed call still counts.
+
 ## Testing QR codes on another device
 
 A phone cannot reach `localhost` on the booth computer. Either:

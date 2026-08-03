@@ -7,6 +7,7 @@ import {
   resolveImageOptions,
   type ImageGenerationOverrides,
 } from "@/lib/image-options";
+import { assertSpendAllowed, recordSpend } from "@/lib/image-spend";
 import { archiveSessionStatus } from "@/lib/portrait-archive";
 import { isImageTuningEnabled } from "@/lib/runtime-env";
 import {
@@ -131,6 +132,9 @@ async function runOpenAiGeneration(
         ? "webp"
         : "jpg";
 
+  // Counted before the call: this is the moment the money is committed.
+  await recordSpend(settings);
+
   const response = await client.images.edit({
     model: settings.model,
     image: await toFile(input.bytes, `portrait.${extension}`, {
@@ -173,6 +177,15 @@ async function performGeneration(
   // Gate before touching session status so a blocked fake leave the session ready.
   if (settings.fakeGenerate && !isImageTuningEnabled()) {
     throw new Error("假生成僅能在開發或 Preview 環境使用。");
+  }
+
+  // Same reason: a session refused by the daily ceiling stays ready, so the
+  // admin can run it tomorrow without it looking like a failed render. Fake
+  // generation costs nothing and is never gated.
+  if (!settings.fakeGenerate) {
+    await assertSpendAllowed(
+      session.source === "admin-batch" ? "batch" : "booth",
+    );
   }
 
   await markGenerating(id);

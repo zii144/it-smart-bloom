@@ -10,6 +10,7 @@ import {
   sizeHint,
   type ImageGenerationOptions,
 } from "@/lib/image-options";
+import type { SpendSnapshot } from "@/lib/image-spend";
 
 /** Mirrors the server-side guards in `sessions.ts` so bad files fail instantly. */
 const SUPPORTED_TYPES = new Set(["image/jpeg", "image/png", "image/webp"]);
@@ -61,16 +62,60 @@ function rejectionFor(file: File) {
   return null;
 }
 
+function formatUsd(value: number) {
+  return `US$${value.toFixed(2)}`;
+}
+
+/** Today's usage against whichever ceilings are configured. */
+function SpendMeter({ spend }: { spend: SpendSnapshot }) {
+  const { limits } = spend;
+  const parts: string[] = [
+    limits.dailyLimit
+      ? `${spend.count} / ${limits.dailyLimit} 張`
+      : `${spend.count} 張`,
+  ];
+
+  if (limits.unitCostConfigured) {
+    parts.push(
+      limits.dailyBudgetUsd
+        ? `估算 ${formatUsd(spend.costUsd)} / ${formatUsd(limits.dailyBudgetUsd)}`
+        : `估算 ${formatUsd(spend.costUsd)}`,
+    );
+  }
+
+  const ratio = Math.max(
+    limits.dailyLimit ? spend.count / limits.dailyLimit : 0,
+    limits.dailyBudgetUsd ? spend.costUsd / limits.dailyBudgetUsd : 0,
+  );
+
+  return (
+    <p
+      className={`admin-batch-spend${ratio >= 1 ? " is-blocked" : ratio >= 0.8 ? " is-warning" : ""}`}
+    >
+      <strong>今日用量</strong>
+      <span>{parts.join(" · ")}</span>
+      {!limits.dailyLimit && !limits.dailyBudgetUsd && (
+        <em>未設每日上限（IMAGE_DAILY_LIMIT）</em>
+      )}
+      {limits.enforce !== "all" && (limits.dailyLimit || limits.dailyBudgetUsd) && (
+        <em>上限只擋批次生成，拍照亭訪客不受影響</em>
+      )}
+    </p>
+  );
+}
+
 export function AdminBatchPanel({
   defaults,
   hasOpenAiKey,
   hasOpenAiPrompt,
   imageTuning,
+  spend,
 }: {
   defaults: ImageGenerationOptions;
   hasOpenAiKey: boolean;
   hasOpenAiPrompt: boolean;
   imageTuning: boolean;
+  spend: SpendSnapshot;
 }) {
   const [items, setItems] = useState<BatchItem[]>([]);
   const [running, setRunning] = useState(false);
@@ -79,6 +124,13 @@ export function AdminBatchPanel({
   const [options, setOptions] = useState<ImageGenerationOptions>(defaults);
   const [fakeGenerate, setFakeGenerate] = useState(false);
   const [notice, setNotice] = useState<string | null>(null);
+  // Batch replies carry fresher usage than the 5s dashboard poll; prefer ours
+  // only while it is ahead of the polled value for the same day.
+  const [reported, setReported] = useState<SpendSnapshot | null>(null);
+  const liveSpend =
+    reported && reported.date === spend.date && reported.count > spend.count
+      ? reported
+      : spend;
 
   const nextKey = useRef(0);
   // The queue itself lives in refs: React state only mirrors it for display, so
@@ -176,7 +228,17 @@ export function AdminBatchPanel({
           resultUrl?: string | null;
           resultMime?: string | null;
           error?: string;
+          spend?: SpendSnapshot;
         } | null;
+
+        if (payload?.spend) setReported(payload.spend);
+
+        // The daily ceiling would refuse every remaining photo too, so stop
+        // dispatching rather than marching the whole queue into 429s.
+        if (response.status === 429) {
+          paused.current = true;
+          setNotice(payload?.error ?? "已達今日生成上限，佇列已暫停。");
+        }
 
         if (!response.ok || !payload?.resultUrl) {
           throw new Error(payload?.error || `生成失敗（${response.status}）`);
@@ -345,6 +407,13 @@ export function AdminBatchPanel({
   const retryableCount = items.filter(
     (item) => item.status === "failed" && item.retryable,
   ).length;
+  // Fake renders cost nothing, so the ceiling never blocks them.
+  const overCeiling =
+    !fakeGenerate &&
+    ((liveSpend.limits.dailyLimit !== null &&
+      liveSpend.count >= liveSpend.limits.dailyLimit) ||
+      (liveSpend.limits.dailyBudgetUsd !== null &&
+        liveSpend.costUsd >= liveSpend.limits.dailyBudgetUsd));
 
   return (
     <section className="admin-panel admin-batch">
@@ -367,8 +436,15 @@ export function AdminBatchPanel({
       {hasOpenAiPrompt && !hasOpenAiKey && !fakeGenerate && (
         <p className="admin-banner">尚未設定 OPENAI_API_KEY，真生成會失敗。</p>
       )}
+      {overCeiling && (
+        <p className="admin-banner">
+          今日生成已達上限，明天才會重置。需要現在繼續請調整
+          IMAGE_DAILY_LIMIT／IMAGE_DAILY_BUDGET_USD。
+        </p>
+      )}
 
       <div className="admin-batch-controls">
+        <SpendMeter spend={liveSpend} />
         <label
           className="admin-batch-drop"
           onDragOver={(event) => event.preventDefault()}
@@ -511,10 +587,14 @@ export function AdminBatchPanel({
           <button
             type="button"
             className="primary-button"
-            disabled={queuedCount === 0 || running}
+            disabled={queuedCount === 0 || running || overCeiling}
             onClick={start}
           >
-            {running ? "生成中…" : `開始生成（${queuedCount} 張）`}
+            {overCeiling
+              ? "已達今日上限"
+              : running
+                ? "生成中…"
+                : `開始生成（${queuedCount} 張）`}
           </button>
           <button
             type="button"

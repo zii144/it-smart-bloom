@@ -1,6 +1,7 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { POST } from "@/app/api/admin30910/batch/route";
 import { createAdminToken } from "@/lib/admin-auth";
+import { listLocalSessions } from "@/lib/sessions";
 import { imageFile, jpegBytes, readMetadata } from "./helpers";
 
 const { editMock } = vi.hoisted(() => ({ editMock: vi.fn() }));
@@ -190,6 +191,57 @@ describe("POST /api/admin30910/batch — generation", () => {
 
     expect(response.status).toBe(500);
     expect((await response.json()).error).toBe("OpenAI rate limit reached");
+  });
+
+  it("reports today's usage alongside the finished portrait", async () => {
+    process.env.IMAGE_UNIT_COST_USD = "0.25";
+
+    const response = await POST(
+      batchRequest(formWith(), { token: createAdminToken() }),
+    );
+
+    const { spend } = await response.json();
+    expect(spend).toMatchObject({ count: 1, costUsd: 0.25 });
+    expect(spend.limits.unitCostConfigured).toBe(true);
+  });
+
+  it("refuses with 429 once the daily ceiling is reached", async () => {
+    process.env.IMAGE_DAILY_LIMIT = "2";
+
+    for (let i = 0; i < 2; i += 1) {
+      const allowed = await POST(
+        batchRequest(formWith(), { token: createAdminToken() }),
+      );
+      expect(allowed.status).toBe(200);
+    }
+    expect(editMock).toHaveBeenCalledTimes(2);
+
+    const refused = await POST(
+      batchRequest(formWith(), { token: createAdminToken() }),
+    );
+
+    expect(refused.status).toBe(429);
+    const payload = await refused.json();
+    expect(payload.error).toMatch(/上限/);
+    expect(payload.spend).toMatchObject({ count: 2 });
+    // The refusal must happen before the billable call, not after it.
+    expect(editMock).toHaveBeenCalledTimes(2);
+  });
+
+  it("leaves a session refused by the ceiling ready to run tomorrow", async () => {
+    process.env.IMAGE_DAILY_LIMIT = "1";
+    await POST(batchRequest(formWith(), { token: createAdminToken() }));
+
+    const refused = await POST(
+      batchRequest(formWith(), { token: createAdminToken() }),
+    );
+    const { error } = await refused.json();
+
+    expect(error).toMatch(/上限/);
+    // The newest session is the refused one: it must not look like a failure.
+    const [newest] = await listLocalSessions({ limit: 1 });
+    expect(newest.status).toBe("ready");
+    expect(newest.error).toBeUndefined();
   });
 
   it("reports the missing system prompt without calling OpenAI", async () => {

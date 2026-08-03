@@ -2707,7 +2707,7 @@ button {
 
 .admin-metrics {
   display: grid;
-  grid-template-columns: repeat(4, minmax(0, 1fr));
+  grid-template-columns: repeat(5, minmax(0, 1fr));
   gap: 8px;
 }
 
@@ -3232,6 +3232,46 @@ button {
   color: var(--ink-soft);
   font-size: 11px;
   line-height: 1.5;
+}
+
+.admin-batch-spend {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 4px 10px;
+  margin: 0;
+  padding: 8px 12px;
+  border: 1px solid rgba(24, 55, 43, 0.1);
+  border-radius: 14px;
+  background: rgba(255, 253, 247, 0.62);
+  font-size: 12px;
+}
+
+.admin-batch-spend strong {
+  color: var(--ink);
+  font-size: 11px;
+  letter-spacing: 0.04em;
+}
+
+.admin-batch-spend span {
+  color: var(--ink);
+  font-variant-numeric: tabular-nums;
+}
+
+.admin-batch-spend em {
+  color: var(--ink-soft);
+  font-size: 10px;
+  font-style: normal;
+}
+
+.admin-batch-spend.is-warning {
+  border-color: rgba(239, 189, 85, 0.5);
+  background: rgba(239, 189, 85, 0.14);
+}
+
+.admin-batch-spend.is-blocked {
+  border-color: rgba(217, 110, 89, 0.45);
+  background: rgba(217, 110, 89, 0.12);
 }
 
 .admin-batch-settings {

@@ -2,6 +2,7 @@ import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { afterAll, beforeAll, beforeEach } from "vitest";
+import { resetSpendCache } from "@/lib/image-spend";
 
 /**
  * Env that changes how sessions/generation behave. Cleared before every test so
@@ -21,6 +22,10 @@ const VOLATILE_ENV_KEYS = [
   "NEXT_PUBLIC_RT_MOCK",
   "NEXT_PUBLIC_RT_MOCK_DELAY_MS",
   "NEXT_PUBLIC_RT_SET_AVATAR_URL",
+  "IMAGE_DAILY_LIMIT",
+  "IMAGE_DAILY_BUDGET_USD",
+  "IMAGE_UNIT_COST_USD",
+  "IMAGE_SPEND_ENFORCE",
 ];
 
 let dataDir: string;
@@ -44,4 +49,6 @@ beforeEach(() => {
   process.env.FAKE_GENERATE_DELAY_MS = "0";
   // Same for the road-teacher mock sign-in.
   process.env.NEXT_PUBLIC_RT_MOCK_DELAY_MS = "0";
+  // Renders counted by one test must not push the next one over a ceiling.
+  resetSpendCache();
 });
