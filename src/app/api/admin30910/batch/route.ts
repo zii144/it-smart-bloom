@@ -4,6 +4,7 @@ import {
   parseImageOverrides,
   resolveImageOptions,
 } from "@/lib/image-options";
+import { readSpendSnapshot, SpendLimitError } from "@/lib/image-spend";
 import { archiveSessionCreated } from "@/lib/portrait-archive";
 import {
   createSession,
@@ -101,12 +102,23 @@ export async function POST(request: Request) {
         resultMime: finished.resultMime ?? null,
         generationOptions: finished.generationOptions ?? null,
         error: finished.error ?? null,
+        // Rides along so the panel can show today's usage without polling.
+        spend: await readSpendSnapshot(),
       },
       { headers: { "Cache-Control": "no-store" } },
     );
   } catch (error) {
     if (error instanceof SessionError) {
       return Response.json({ error: error.message }, { status: error.status });
+    }
+
+    // The daily ceiling is a refusal, not a failure: report it as such and
+    // hand back the usage so the panel can stop the queue itself.
+    if (error instanceof SpendLimitError) {
+      return Response.json(
+        { error: error.message, spend: await readSpendSnapshot() },
+        { status: error.status, headers: { "Cache-Control": "no-store" } },
+      );
     }
 
     if (

@@ -4,6 +4,7 @@ import {
 } from "@/lib/admin-auth";
 import { getAdminHealth } from "@/lib/admin-health";
 import { defaultImageOptions } from "@/lib/image-options";
+import { readSpendSnapshot } from "@/lib/image-spend";
 import { listArchiveSessions } from "@/lib/portrait-archive";
 import { listLocalSessions } from "@/lib/sessions";
 
@@ -43,15 +44,17 @@ export async function GET(request: Request) {
     );
   }
 
-  const [local, archive] = await Promise.all([
+  const [local, archive, spend] = await Promise.all([
     listLocalSessions({ limit: 50 }),
     listArchiveSessions({ limit: 50 }),
+    readSpendSnapshot(),
   ]);
 
   return Response.json(
     {
       health: getAdminHealth(),
       imageDefaults: defaultImageOptions(),
+      spend,
       localSessions: local.map((session) => ({
         id: session.id,
         status: session.status,

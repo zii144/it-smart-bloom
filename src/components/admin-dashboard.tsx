@@ -4,6 +4,7 @@ import { useEffect, useState, type ReactNode } from "react";
 import { AdminBatchPanel } from "@/components/admin-batch-panel";
 import { BloomMark } from "@/components/brand";
 import type { ImageGenerationOptions } from "@/lib/image-options";
+import type { SpendSnapshot } from "@/lib/image-spend";
 
 export type AdminSessionRow = {
   id: string;
@@ -35,6 +36,7 @@ export type AdminDashboardPayload = {
     dataDir: string;
   };
   imageDefaults: ImageGenerationOptions;
+  spend: SpendSnapshot;
   localSessions: AdminSessionRow[];
   archiveSessions: AdminSessionRow[];
   archiveError: string | null;
@@ -405,6 +407,17 @@ export function AdminDashboard({
           />
           <Metric label="已完成" value={completeCount} hint="完成紀錄" />
           <Metric label="失敗" value={failedCount} hint="需留意" />
+          <Metric
+            label="今日生成"
+            value={
+              data.spend.limits.dailyLimit
+                ? `${data.spend.count}/${data.spend.limits.dailyLimit}`
+                : data.spend.count
+            }
+            hint={
+              data.spend.limits.dailyLimit ? "已用／上限" : "今日張數・未設上限"
+            }
+          />
         </section>
       </div>
 
@@ -497,6 +510,7 @@ export function AdminDashboard({
           hasOpenAiKey={health.hasOpenAiKey}
           hasOpenAiPrompt={health.hasOpenAiPrompt}
           imageTuning={health.imageTuning}
+          spend={data.spend}
         />
       </div>
     </AdminChrome>

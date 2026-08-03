@@ -12,6 +12,7 @@ import {
 } from "@/lib/admin-auth";
 import { getAdminHealth } from "@/lib/admin-health";
 import { defaultImageOptions } from "@/lib/image-options";
+import { readSpendSnapshot } from "@/lib/image-spend";
 import { listArchiveSessions } from "@/lib/portrait-archive";
 import { listLocalSessions } from "@/lib/sessions";
 
@@ -28,14 +29,16 @@ type PageProps = {
 };
 
 async function loadDashboard(): Promise<AdminDashboardPayload> {
-  const [local, archive] = await Promise.all([
+  const [local, archive, spend] = await Promise.all([
     listLocalSessions({ limit: 50 }),
     listArchiveSessions({ limit: 50 }),
+    readSpendSnapshot(),
   ]);
 
   return {
     health: getAdminHealth(),
     imageDefaults: defaultImageOptions(),
+    spend,
     localSessions: local.map((session) => ({
       id: session.id,
       status: session.status,

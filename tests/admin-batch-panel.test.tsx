@@ -11,6 +11,7 @@ import userEvent from "@testing-library/user-event";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { AdminBatchPanel } from "@/components/admin-batch-panel";
 import type { ImageGenerationOptions } from "@/lib/image-options";
+import type { SpendSnapshot } from "@/lib/image-spend";
 
 const defaults: ImageGenerationOptions = {
   model: "gpt-image-2",
@@ -20,6 +21,22 @@ const defaults: ImageGenerationOptions = {
   outputCompression: 90,
   fakeGenerate: false,
 };
+
+function spendSnapshot(overrides: Partial<SpendSnapshot> = {}): SpendSnapshot {
+  return {
+    date: "2026-08-03",
+    count: 0,
+    costUsd: 0,
+    ...overrides,
+    limits: {
+      dailyLimit: null,
+      dailyBudgetUsd: null,
+      enforce: "batch",
+      unitCostConfigured: false,
+      ...overrides.limits,
+    },
+  };
+}
 
 type BatchCall = { imageName: string; imageOptions: string | null };
 
@@ -66,6 +83,7 @@ function renderPanel(overrides: Partial<Parameters<typeof AdminBatchPanel>[0]> =
       hasOpenAiKey
       hasOpenAiPrompt
       imageTuning={false}
+      spend={spendSnapshot()}
       {...overrides}
     />,
   );
@@ -298,6 +316,7 @@ describe("AdminBatchPanel — configuration warnings", () => {
         hasOpenAiKey
         hasOpenAiPrompt
         imageTuning
+        spend={spendSnapshot()}
       />,
     );
 
