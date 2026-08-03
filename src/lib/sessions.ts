@@ -23,6 +23,9 @@ const SUPPORTED_IMAGE_TYPES = new Set([
 
 export type SessionStatus = "ready" | "generating" | "complete" | "failed";
 
+/** Absent means the booth: only the admin batch tool tags itself. */
+export type SessionSource = "booth" | "admin-batch";
+
 export type ImageSession = {
   id: string;
   createdAt: string;
@@ -31,6 +34,7 @@ export type ImageSession = {
   inputMime: string;
   resultMime?: string;
   error?: string;
+  source?: SessionSource;
   generationStartedAt?: string;
   generationOptions?: ImageGenerationOptions;
   identity?: {
@@ -108,6 +112,7 @@ function sessionFromArchive(record: {
   error?: string | null;
   inputMime: string;
   resultMime?: string | null;
+  source?: SessionSource | null;
   generationOptions?: ImageSession["generationOptions"] | null;
   identityKind?: "lineId" | "mobile" | null;
   identityValue?: string | null;
@@ -125,6 +130,7 @@ function sessionFromArchive(record: {
 
   if (record.resultMime) session.resultMime = record.resultMime;
   if (record.error) session.error = record.error;
+  if (record.source) session.source = record.source;
   if (record.generationStartedAt) {
     session.generationStartedAt = record.generationStartedAt;
   }
@@ -198,6 +204,7 @@ export class SessionError extends Error {
 export async function createSession(
   file: File,
   generationOptions?: ImageGenerationOptions,
+  source?: SessionSource,
 ) {
   if (!SUPPORTED_IMAGE_TYPES.has(file.type)) {
     throw new SessionError("請使用 JPEG、PNG 或 WebP 格式的照片。", 415);
@@ -220,6 +227,7 @@ export async function createSession(
     expiresAt: new Date(createdAt.getTime() + SESSION_TTL_MS).toISOString(),
     status: "ready",
     inputMime: file.type,
+    ...(source ? { source } : {}),
     ...(generationOptions ? { generationOptions } : {}),
   };
 

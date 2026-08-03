@@ -1,7 +1,9 @@
 "use client";
 
 import { useEffect, useState, type ReactNode } from "react";
+import { AdminBatchPanel } from "@/components/admin-batch-panel";
 import { BloomMark } from "@/components/brand";
+import type { ImageGenerationOptions } from "@/lib/image-options";
 
 export type AdminSessionRow = {
   id: string;
@@ -11,6 +13,7 @@ export type AdminSessionRow = {
   identity: string | null;
   avatarRequestStatus: string | null;
   fakeGenerate: boolean | null;
+  source: string | null;
   error: string | null;
   inputUrl: string | null;
   resultUrl: string | null;
@@ -31,6 +34,7 @@ export type AdminDashboardPayload = {
     hasRoadTeacherKey: boolean;
     dataDir: string;
   };
+  imageDefaults: ImageGenerationOptions;
   localSessions: AdminSessionRow[];
   archiveSessions: AdminSessionRow[];
   archiveError: string | null;
@@ -221,7 +225,11 @@ function SessionPanel({
                 </div>
                 <div className="admin-session-meta">
                   <span>{formatWhen(row.createdAt)}</span>
-                  <span>{localizeIdentity(row.identity)}</span>
+                  <span>
+                    {row.source === "admin-batch"
+                      ? "批次生成"
+                      : localizeIdentity(row.identity)}
+                  </span>
                   {row.fakeGenerate === true && <span>假生成</span>}
                   {row.avatarRequestStatus && (
                     <span>
@@ -301,6 +309,7 @@ export function AdminDashboard({
 }) {
   const [data, setData] = useState(initial);
   const [error, setError] = useState<string | null>(null);
+  const [tab, setTab] = useState<"overview" | "batch">("overview");
 
   useEffect(() => {
     let cancelled = false;
@@ -352,6 +361,27 @@ export function AdminDashboard({
 
   return (
     <AdminChrome>
+      <nav className="admin-tabs" aria-label="管理頁功能">
+        <button
+          type="button"
+          className={tab === "overview" ? "is-active" : undefined}
+          aria-pressed={tab === "overview"}
+          onClick={() => setTab("overview")}
+        >
+          現場總覽
+        </button>
+        <button
+          type="button"
+          className={tab === "batch" ? "is-active" : undefined}
+          aria-pressed={tab === "batch"}
+          onClick={() => setTab("batch")}
+        >
+          批次生成
+        </button>
+      </nav>
+
+      {/* Both panels stay mounted: switching tabs mid-batch must not drop the queue. */}
+      <div className="admin-tabpanel" hidden={tab !== "overview"}>
       <div className="admin-dashboard-top">
         <div className="stage-heading admin-heading">
           <p className="eyebrow">營運觀察</p>
@@ -457,6 +487,16 @@ export function AdminDashboard({
           title="本機磁碟"
           rows={data.localSessions}
           empty="尚無本機 session 資料夾。"
+        />
+      </div>
+      </div>
+
+      <div className="admin-tabpanel" hidden={tab !== "batch"}>
+        <AdminBatchPanel
+          defaults={data.imageDefaults}
+          hasOpenAiKey={health.hasOpenAiKey}
+          hasOpenAiPrompt={health.hasOpenAiPrompt}
+          imageTuning={health.imageTuning}
         />
       </div>
     </AdminChrome>

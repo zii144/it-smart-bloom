@@ -3,6 +3,7 @@ import {
   resolveAdminAuth,
 } from "@/lib/admin-auth";
 import { getAdminHealth } from "@/lib/admin-health";
+import { defaultImageOptions } from "@/lib/image-options";
 import { listArchiveSessions } from "@/lib/portrait-archive";
 import { listLocalSessions } from "@/lib/sessions";
 
@@ -50,6 +51,7 @@ export async function GET(request: Request) {
   return Response.json(
     {
       health: getAdminHealth(),
+      imageDefaults: defaultImageOptions(),
       localSessions: local.map((session) => ({
         id: session.id,
         status: session.status,
@@ -60,6 +62,7 @@ export async function GET(request: Request) {
           : null,
         avatarRequestStatus: null,
         fakeGenerate: Boolean(session.generationOptions?.fakeGenerate),
+        source: session.source ?? null,
         error: session.error ?? null,
         inputUrl: `/api/sessions/${session.id}/image?kind=input`,
         resultUrl:
@@ -78,6 +81,7 @@ export async function GET(request: Request) {
             : null,
         avatarRequestStatus: session.avatarRequestStatus,
         fakeGenerate: null,
+        source: session.source ?? null,
         error: session.error,
         inputUrl: session.storage.inputPath
           ? `/api/admin30910/sessions/${session.sessionId}/image?kind=input`
