@@ -4,6 +4,7 @@ import Image from "next/image";
 import { useCallback, useEffect, useState } from "react";
 import { BloomMark } from "@/components/brand";
 import { DevImageSettingsModal } from "@/components/dev-image-settings-modal";
+import { RoadTeacherLoginModal } from "@/components/road-teacher-login-modal";
 import {
   FACEBOOK_SHARE_QUOTE,
   buildFacebookShareUrl,
@@ -31,11 +32,6 @@ type SessionStatus = {
   resultUrl: string | null;
   error: string | null;
   generationOptions?: ImageGenerationOptions | null;
-  identity?: {
-    kind: "lineId" | "mobile";
-    value: string;
-    claimedAt: string;
-  } | null;
 };
 
 /** Measured end-to-end render time for gpt-image-2 medium, paces the bar. */
@@ -120,11 +116,7 @@ export function SessionExperience({
     useState<ImageGenerationOptions | null>(null);
   const [now, setNow] = useState(() => Date.now());
   const [offline, setOffline] = useState(false);
-  const [lineId, setLineId] = useState("");
-  const [mobile, setMobile] = useState("");
-  const [identityError, setIdentityError] = useState<string | null>(null);
-  const [claiming, setClaiming] = useState(false);
-  const [avatarBusy, setAvatarBusy] = useState(false);
+  const [showRtLogin, setShowRtLogin] = useState(false);
   const [avatarMessage, setAvatarMessage] = useState<string | null>(null);
 
   const applySession = useCallback((next: SessionStatus) => {
@@ -377,52 +369,6 @@ export function SessionExperience({
     }
   }
 
-  async function claimIdentity() {
-    setIdentityError(null);
-    setClaiming(true);
-    try {
-      const response = await fetch(`/api/sessions/${id}/claim`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ lineId, mobile }),
-      });
-      const payload = await response.json();
-      if (!response.ok) {
-        throw new Error(payload.error || "無法保存身分資料。");
-      }
-      applySession(payload as SessionStatus);
-    } catch (caught) {
-      setIdentityError(
-        caught instanceof Error ? caught.message : "無法保存身分資料。",
-      );
-    } finally {
-      setClaiming(false);
-    }
-  }
-
-  async function requestAvatar() {
-    setAvatarMessage(null);
-    setAvatarBusy(true);
-    try {
-      const response = await fetch(`/api/sessions/${id}/avatar`, {
-        method: "POST",
-      });
-      const payload = await response.json();
-      if (!response.ok) {
-        throw new Error(payload.error || "無法替換路老師系統大頭貼。");
-      }
-      setAvatarMessage("已送出路老師系統，請稍候在 LINE 查看。");
-    } catch (caught) {
-      setAvatarMessage(
-        caught instanceof Error
-          ? caught.message
-          : "無法替換路老師系統大頭貼。",
-      );
-    } finally {
-      setAvatarBusy(false);
-    }
-  }
-
   // No session yet means we have not had a single successful reply from the
   // server, which is a connectivity problem rather than a slow render.
   const connecting = waiting && !session;
@@ -505,83 +451,24 @@ export function SessionExperience({
               </button>
             </div>
 
-            {!session.identity ? (
-              <form
-                className="identity-form"
-                onSubmit={(event) => {
-                  event.preventDefault();
-                  void claimIdentity();
+            <div className="avatar-cta">
+              <button
+                type="button"
+                className="primary-button avatar-button"
+                onClick={() => {
+                  setAvatarMessage(null);
+                  setShowRtLogin(true);
                 }}
               >
-                <p className="identity-form-title">請先留下身分，方便我們對應</p>
-                <p className="identity-form-hint">
-                  只需填寫其中一項：路老師通用 Line ID，或台灣手機號碼。
-                </p>
-                <label className="identity-field">
-                  <span>路老師通用 Line ID</span>
-                  <input
-                    value={lineId}
-                    onChange={(event) => {
-                      setLineId(event.target.value);
-                      if (event.target.value.trim()) setMobile("");
-                    }}
-                    placeholder="例如 112-張小明-南投縣"
-                    autoComplete="off"
-                    disabled={Boolean(mobile.trim()) || claiming}
-                  />
-                </label>
-                <p className="identity-or">或</p>
-                <label className="identity-field">
-                  <span>手機號碼</span>
-                  <input
-                    value={mobile}
-                    onChange={(event) => {
-                      setMobile(event.target.value);
-                      if (event.target.value.trim()) setLineId("");
-                    }}
-                    placeholder="例如 0912345678"
-                    inputMode="numeric"
-                    autoComplete="tel"
-                    disabled={Boolean(lineId.trim()) || claiming}
-                  />
-                </label>
-                {identityError && (
-                  <p className="error-message">{identityError}</p>
-                )}
-                <button
-                  type="submit"
-                  className="secondary-button identity-submit"
-                  disabled={claiming || (!lineId.trim() && !mobile.trim())}
-                >
-                  {claiming ? "保存中…" : "確認身分"}
-                </button>
-              </form>
-            ) : (
-              <div className="identity-claimed">
-                <p className="identity-claimed-label">
-                  已登錄：
-                  {session.identity.kind === "lineId"
-                    ? session.identity.value
-                    : session.identity.value.replace(
-                        /^(\d{4})\d{3}(\d{3})$/,
-                        "$1***$2",
-                      )}
-                </p>
-                <button
-                  type="button"
-                  className="primary-button avatar-button"
-                  onClick={() => void requestAvatar()}
-                  disabled={avatarBusy}
-                >
-                  {avatarBusy
-                    ? "送出中…"
-                    : "一鍵替換成路老師系統大頭貼"}
-                </button>
-                {avatarMessage && (
-                  <p className="avatar-message">{avatarMessage}</p>
-                )}
-              </div>
-            )}
+                一鍵替換成路老師系統大頭貼
+              </button>
+              <p className="avatar-hint">
+                需登入路老師系統帳號，確認由本人替換。
+              </p>
+              {avatarMessage && (
+                <p className="avatar-message">{avatarMessage}</p>
+              )}
+            </div>
 
             {tuningEnabled && (
               <button
@@ -728,6 +615,20 @@ export function SessionExperience({
       <footer className="mobile-footer">
         用心創作・由 OpenAI 提供技術
       </footer>
+
+      <RoadTeacherLoginModal
+        open={showRtLogin}
+        sessionId={id}
+        onCancel={() => setShowRtLogin(false)}
+        onSuccess={(result) => {
+          setShowRtLogin(false);
+          setAvatarMessage(
+            result.mock
+              ? "開發模擬：已走完替換流程，未真正更新大頭貼。"
+              : "已更新路老師系統大頭貼。",
+          );
+        }}
+      />
 
       {tuningEnabled && (
         <DevImageSettingsModal

@@ -2466,32 +2466,95 @@ button {
   border-color: rgba(36, 61, 55, 0.45);
 }
 
-.identity-form,
-.identity-claimed {
+/* —— 路老師 avatar replacement —— */
+
+.avatar-cta {
   width: min(100%, 360px);
   margin-top: 22px;
   display: grid;
-  gap: 12px;
-  text-align: left;
+  gap: 10px;
 }
 
-.identity-form-title {
-  margin: 0;
-  font-size: 15px;
-  font-weight: 800;
-  color: var(--ink);
+.avatar-button {
+  width: 100%;
 }
 
-.identity-form-hint,
-.identity-claimed-label,
+.avatar-hint,
 .avatar-message {
   margin: 0;
   font-size: 13px;
   line-height: 1.55;
   color: var(--ink-soft);
+  text-align: center;
 }
 
-.identity-field {
+.avatar-message {
+  font-weight: 700;
+  color: var(--ink);
+}
+
+/* Login sheet: same visual treatment as the dev settings modal. */
+.rt-login-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 80;
+  display: grid;
+  place-items: center;
+  padding: 20px;
+  background:
+    linear-gradient(180deg, rgba(36, 61, 55, 0.28), rgba(36, 61, 55, 0.5)),
+    radial-gradient(circle at top, rgba(239, 189, 85, 0.18), transparent 55%);
+  backdrop-filter: blur(6px);
+}
+
+.rt-login-modal {
+  width: min(100%, 420px);
+  max-height: min(90vh, 720px);
+  overflow: auto;
+  padding: 22px 22px 18px;
+  border: 1px solid var(--line);
+  border-radius: 28px;
+  background:
+    linear-gradient(165deg, rgba(255, 250, 240, 0.98), rgba(251, 244, 223, 0.96));
+  box-shadow: 0 24px 60px rgba(36, 61, 55, 0.22);
+  color: var(--ink);
+}
+
+.rt-login-header .eyebrow {
+  margin: 0 0 6px;
+}
+
+.rt-login-header h2 {
+  margin: 0;
+  font-family: var(--serif);
+  font-size: 28px;
+  line-height: 1.15;
+}
+
+.rt-login-header p {
+  margin: 8px 0 0;
+  color: var(--ink-soft);
+  font-size: 13px;
+  line-height: 1.5;
+}
+
+.rt-login-mock-note {
+  margin: 14px 0 0;
+  padding: 10px 12px;
+  border-radius: 14px;
+  background: rgba(143, 174, 146, 0.18);
+  color: var(--ink);
+  font-size: 13px;
+  font-weight: 600;
+}
+
+.rt-login-form {
+  display: grid;
+  gap: 14px;
+  margin-top: 18px;
+}
+
+.rt-login-field {
   display: grid;
   gap: 6px;
   font-size: 12px;
@@ -2499,7 +2562,7 @@ button {
   color: var(--ink-soft);
 }
 
-.identity-field input {
+.rt-login-field input {
   width: 100%;
   padding: 12px 14px;
   border: 1px solid rgba(36, 61, 55, 0.18);
@@ -2511,25 +2574,29 @@ button {
   font-weight: 600;
 }
 
-.identity-field input:disabled {
+.rt-login-field input:disabled {
   opacity: 0.55;
 }
 
-.identity-or {
+.rt-login-error {
   margin: 0;
-  text-align: center;
-  font-size: 12px;
-  font-weight: 700;
-  color: var(--coral-dark);
+  color: #a33c31;
+  font-size: 13px;
+  font-weight: 650;
 }
 
-.identity-submit,
-.avatar-button {
-  width: 100%;
-}
-
-.avatar-button {
+.rt-login-actions {
+  display: flex;
+  gap: 10px;
+  justify-content: flex-end;
   margin-top: 4px;
+}
+
+.rt-login-actions .primary-button,
+.rt-login-actions .secondary-button {
+  min-width: 0;
+  width: auto;
+  padding-inline: 18px;
 }
 
 /* —— Admin ops dashboard (/admin30910) —— */

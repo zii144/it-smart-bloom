@@ -47,6 +47,15 @@ npm run dev
 Use `npm run dev:next` only if you need Next without emulators.
 Never set `FIRESTORE_EMULATOR_HOST` / `FIREBASE_STORAGE_EMULATOR_HOST` on Vercel.
 
+### Road-teacher avatar (mock)
+
+`NEXT_PUBLIC_RT_MOCK=true` (set in `.env.development.local`) simulates the
+road-teacher sign-in and avatar replacement against the local
+`/api/dev/set-avatar` stub, so the guest flow works end to end without the
+road-teacher Firebase project. Any password of 6+ characters passes; `wrong`
+fails; `locked@…` / `disabled@…` emails simulate lockout / disabled accounts.
+See `docs/road-teacher-auth-plan.md` for the real integration.
+
 ### Admin dashboard (ops)
 
 Hidden route: [http://localhost:3059/admin30910](http://localhost:3059/admin30910)
