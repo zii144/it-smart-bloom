@@ -2788,6 +2788,7 @@ button {
   display: flex;
   min-height: 0;
   flex-direction: column;
+  overflow: hidden;
   padding: 14px;
   border-radius: 26px;
   border: 1px solid rgba(24, 55, 43, 0.1);
@@ -2833,10 +2834,14 @@ button {
   font-size: 13px;
 }
 
+/* Scrolls inside the card instead of spilling over the footer on short windows. */
 .admin-session-list {
   display: grid;
+  flex: 1 1 auto;
+  align-content: start;
   min-height: 0;
   gap: 5px;
+  overflow-y: auto;
 }
 
 .admin-session-row {
