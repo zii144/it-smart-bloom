@@ -18,6 +18,9 @@ const VOLATILE_ENV_KEYS = [
   "FAKE_GENERATE_DELAY_MS",
   "FAKE_GENERATE_MODE",
   "ADMIN_DASHBOARD_SECRET",
+  "NEXT_PUBLIC_RT_MOCK",
+  "NEXT_PUBLIC_RT_MOCK_DELAY_MS",
+  "NEXT_PUBLIC_RT_SET_AVATAR_URL",
 ];
 
 let dataDir: string;
@@ -39,4 +42,6 @@ beforeEach(() => {
   process.env.OPENAI_IMAGE_SYSTEM_PROMPT = "test system prompt";
   // Keep fake-generate unit tests fast unless a case opts into a delay.
   process.env.FAKE_GENERATE_DELAY_MS = "0";
+  // Same for the road-teacher mock sign-in.
+  process.env.NEXT_PUBLIC_RT_MOCK_DELAY_MS = "0";
 });

@@ -152,7 +152,36 @@ describe("SessionExperience — guest journey", () => {
     expect(
       screen.getByRole("button", { name: "分享到臉書" }),
     ).toBeDefined();
-    expect(screen.getByText(/請先留下身分/)).toBeDefined();
+    // The avatar CTA is available without any sign-in: auth is never a gate
+    // on seeing or saving the portrait.
+    expect(
+      screen.getByRole("button", { name: "一鍵替換成路老師系統大頭貼" }),
+    ).toBeDefined();
+  });
+
+  it("opens the road-teacher login sheet only when the guest asks", async () => {
+    mockFetch({
+      status: () =>
+        sessionPayload({
+          status: "complete",
+          resultUrl: `/api/sessions/${SESSION_ID}/image?kind=result`,
+        }),
+    });
+
+    render(<SessionExperience id={SESSION_ID} tuningEnabled={false} />);
+
+    await screen.findByRole("link", { name: "下載我的專屬人像" });
+    expect(screen.queryByRole("dialog")).toBeNull();
+
+    fireEvent.click(
+      screen.getByRole("button", { name: "一鍵替換成路老師系統大頭貼" }),
+    );
+    expect(
+      screen.getByRole("heading", { name: "登入後替換大頭貼" }),
+    ).toBeDefined();
+
+    fireEvent.click(screen.getByRole("button", { name: "取消" }));
+    expect(screen.queryByRole("dialog")).toBeNull();
   });
 
   it("offers a retry when the render failed", async () => {
