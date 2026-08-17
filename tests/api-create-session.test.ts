@@ -18,11 +18,18 @@ async function flushAfterCallbacks() {
   }
 }
 
-function createRequest(file = imageFile(), imageOptions?: string) {
+function createRequest(
+  file = imageFile(),
+  imageOptions?: string,
+  lineId?: string,
+) {
   const body = new FormData();
   body.set("image", file);
   if (imageOptions !== undefined) {
     body.set("imageOptions", imageOptions);
+  }
+  if (lineId !== undefined) {
+    body.set("lineId", lineId);
   }
   return new Request("http://booth.local/api/sessions", {
     method: "POST",
@@ -50,6 +57,35 @@ describe("POST /api/sessions", () => {
     await expect(getSession(payload.id)).resolves.toMatchObject({
       status: "ready",
     });
+  });
+
+  it("stores a validated LINE ID with an uploaded portrait", async () => {
+    const response = await POST(
+      createRequest(imageFile(), undefined, "112-張小明-南投縣"),
+    );
+    const payload = await response.json();
+
+    expect(response.status).toBe(201);
+    expect(payload.identity).toMatchObject({
+      kind: "lineId",
+      value: "112-張小明-南投縣",
+    });
+    await expect(getSession(payload.id)).resolves.toMatchObject({
+      identity: {
+        kind: "lineId",
+        value: "112-張小明-南投縣",
+      },
+    });
+  });
+
+  it("rejects an invalid LINE ID before creating the portrait", async () => {
+    const response = await POST(
+      createRequest(imageFile(), undefined, "張小明"),
+    );
+
+    expect(response.status).toBe(400);
+    expect(await response.json()).toMatchObject({ error: expect.any(String) });
+    expect(afterMock).not.toHaveBeenCalled();
   });
 
   it("builds the share link from APP_BASE_URL when configured", async () => {

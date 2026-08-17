@@ -75,6 +75,17 @@ export async function archiveSessionCreated(session: ImageSession, input: {
     input.bytes,
     input.mime,
   );
+  const identity = session.identity;
+  const identityKey = identity
+    ? identityStorageKey({ kind: identity.kind, value: identity.value })
+    : null;
+  const identityInputPath = identityKey
+    ? await uploadBytes(
+        `identities/${identityKey}/${session.id}/input`,
+        input.bytes,
+        input.mime,
+      )
+    : null;
 
   const now = new Date().toISOString();
   const record: ArchiveRecord = {
@@ -89,22 +100,38 @@ export async function archiveSessionCreated(session: ImageSession, input: {
     resultMime: session.resultMime ?? null,
     source: session.source ?? null,
     generationOptions: session.generationOptions ?? null,
-    identityKind: null,
-    identityValue: null,
-    identityKey: null,
-    claimedAt: null,
+    identityKind: identity?.kind ?? null,
+    identityValue: identity?.value ?? null,
+    identityKey,
+    claimedAt: identity?.claimedAt ?? null,
     avatarRequestedAt: null,
     avatarRequestStatus: "idle",
     avatarRequestError: null,
     storage: {
       inputPath,
       resultPath: null,
-      identityInputPath: null,
+      identityInputPath,
       identityResultPath: null,
     },
   };
 
   await sessionDoc(session.id)?.set(record, { merge: true });
+
+  if (identity && identityKey) {
+    const ref = identityDoc(identityKey);
+    const previous = await ref?.get();
+    const previousIds =
+      (previous?.data()?.sessionIds as string[] | undefined) ?? [];
+    await ref?.set(
+      {
+        kind: identity.kind,
+        value: identity.value,
+        updatedAt: now,
+        sessionIds: Array.from(new Set([...previousIds, session.id])),
+      },
+      { merge: true },
+    );
+  }
 }
 
 export async function archiveSessionStatus(
