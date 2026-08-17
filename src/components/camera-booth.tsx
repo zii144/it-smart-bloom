@@ -15,6 +15,7 @@ import {
   requestUserCamera,
   writeCameraPreference,
 } from "@/lib/camera-access";
+import { isValidLineId, normalizeLineId } from "@/lib/guest-identity";
 import type { ImageGenerationOptions } from "@/lib/image-options";
 import { buildLineShareUrl } from "@/lib/line-share";
 
@@ -30,9 +31,23 @@ type SessionPayload = {
   generationOptions?: ImageGenerationOptions | null;
 };
 
-type BoothStep = "intro" | "camera" | "preview" | "sharing";
+type BoothStep =
+  | "invitation"
+  | "upload"
+  | "intro"
+  | "camera"
+  | "preview"
+  | "sharing";
 
 type CameraOption = { deviceId: string; label: string };
+type PhotoSource = "upload" | "camera";
+
+const MAX_UPLOAD_BYTES = 12 * 1024 * 1024;
+const SUPPORTED_UPLOAD_TYPES = new Set([
+  "image/jpeg",
+  "image/png",
+  "image/webp",
+]);
 
 function CameraIcon() {
   return (
@@ -53,6 +68,16 @@ function ArrowIcon() {
     <svg viewBox="0 0 24 24" aria-hidden="true">
       <path className="icon-ghost-line" d="M5 12.4h14M14.2 7.2l5 5-5 5" />
       <path d="M5 12h14M14 7l5 5-5 5" />
+    </svg>
+  );
+}
+
+function PhotoUploadIcon() {
+  return (
+    <svg viewBox="0 0 24 24" aria-hidden="true">
+      <path d="M4.5 3.5h15a2 2 0 0 1 2 2v13a2 2 0 0 1-2 2h-15a2 2 0 0 1-2-2v-13a2 2 0 0 1 2-2Z" />
+      <circle cx="8" cy="8" r="1.8" />
+      <path d="m3.2 17 4.7-4.6 3.4 3.2 2.6-2.6 6.9 6.4M12 3.5v-2M9.8 1.5h4.4" />
     </svg>
   );
 }
@@ -109,8 +134,10 @@ export function CameraBooth({
 }: {
   tuningEnabled?: boolean;
 }) {
-  const [step, setStep] = useState<BoothStep>("intro");
+  const [step, setStep] = useState<BoothStep>("invitation");
+  const [lineId, setLineId] = useState("");
   const [photo, setPhoto] = useState<Blob | null>(null);
+  const [photoSource, setPhotoSource] = useState<PhotoSource | null>(null);
   const [previewUrl, setPreviewUrl] = useState<string | null>(null);
   const [session, setSession] = useState<SessionPayload | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -121,6 +148,10 @@ export function CameraBooth({
   const [cameras, setCameras] = useState<CameraOption[]>([]);
   const [currentCameraId, setCurrentCameraId] = useState<string | null>(null);
   const [streamEpoch, setStreamEpoch] = useState(0);
+  const lineIdInputRef = useRef<HTMLInputElement>(null);
+  const uploadInputRef = useRef<HTMLInputElement>(null);
+  const guestEntryHeadingRef = useRef<HTMLHeadingElement>(null);
+  const introHeadingRef = useRef<HTMLHeadingElement>(null);
   const videoRef = useRef<HTMLVideoElement>(null);
   const streamRef = useRef<MediaStream | null>(null);
   const stopCamera = useCallback(() => {
@@ -276,6 +307,7 @@ export function CameraBooth({
         }
         if (previewUrl) URL.revokeObjectURL(previewUrl);
         setPhoto(blob);
+        setPhotoSource("camera");
         setPreviewUrl(URL.createObjectURL(blob));
         stopCamera();
         setStep("preview");
@@ -286,9 +318,17 @@ export function CameraBooth({
   }
 
   function retake() {
+    const returnToUpload = photoSource === "upload";
     setPhoto(null);
+    setPhotoSource(null);
     if (previewUrl) URL.revokeObjectURL(previewUrl);
     setPreviewUrl(null);
+    if (returnToUpload) {
+      if (uploadInputRef.current) uploadInputRef.current.value = "";
+      setError(null);
+      setStep("upload");
+      return;
+    }
     void openCamera();
   }
 
@@ -308,6 +348,9 @@ export function CameraBooth({
     try {
       const formData = new FormData();
       formData.set("image", photo, "portrait.jpg");
+      if (lineId.trim()) {
+        formData.set("lineId", normalizeLineId(lineId));
+      }
       const optionsToStore = options ?? tuningOptions;
       if (optionsToStore) {
         formData.set("imageOptions", JSON.stringify(optionsToStore));
@@ -340,6 +383,66 @@ export function CameraBooth({
     window.location.assign("/");
   }
 
+  function acceptInvitation() {
+    setError(null);
+    setStep("upload");
+    window.requestAnimationFrame(() =>
+      guestEntryHeadingRef.current?.focus({ preventScroll: true }),
+    );
+  }
+
+  function validateLineId() {
+    const normalized = normalizeLineId(lineId);
+    if (!isValidLineId(normalized)) {
+      setError("LINE ID 格式需為「數字-姓名-地區」，例如 112-張小明-南投縣。");
+      window.requestAnimationFrame(() => lineIdInputRef.current?.focus());
+      return null;
+    }
+    setLineId(normalized);
+    return normalized;
+  }
+
+  function selectUploadedPhoto(file: File | undefined) {
+    if (!file) return;
+
+    if (!SUPPORTED_UPLOAD_TYPES.has(file.type)) {
+      setError("請上傳 JPEG、PNG 或 WebP 格式的照片。");
+      if (uploadInputRef.current) uploadInputRef.current.value = "";
+      return;
+    }
+    if (file.size === 0 || file.size > MAX_UPLOAD_BYTES) {
+      setError("照片大小需小於 12 MB。");
+      if (uploadInputRef.current) uploadInputRef.current.value = "";
+      return;
+    }
+
+    if (previewUrl) URL.revokeObjectURL(previewUrl);
+    setPhoto(file);
+    setPhotoSource("upload");
+    setPreviewUrl(URL.createObjectURL(file));
+    setError(null);
+  }
+
+  function reviewUpload() {
+    if (!validateLineId()) return;
+    if (!photo || photoSource !== "upload") {
+      setError("請選擇一張想要創作的照片。");
+      uploadInputRef.current?.focus();
+      return;
+    }
+    setError(null);
+    setStep("preview");
+  }
+
+  function continueWithCamera() {
+    if (!validateLineId()) return;
+    setError(null);
+    setStep("intro");
+    window.requestAnimationFrame(() =>
+      introHeadingRef.current?.focus({ preventScroll: true }),
+    );
+  }
+
   return (
     <main className="booth-shell">
       <div className="ambient ambient-one" />
@@ -354,6 +457,217 @@ export function CameraBooth({
       </header>
 
       <section className={`booth-stage booth-stage-${step}`}>
+        {step === "invitation" && (
+          <div
+            className="invitation-welcome"
+            aria-labelledby="invitation-title"
+          >
+            <div className="invitation-flower" aria-hidden="true">
+              <Image
+                src="/images/watercolor/peony.jpg"
+                alt=""
+                fill
+                sizes="180px"
+                loading="eager"
+              />
+            </div>
+
+            <article className="invitation-card">
+              <span
+                className="invitation-corner invitation-corner-one"
+                aria-hidden="true"
+              />
+              <span
+                className="invitation-corner invitation-corner-two"
+                aria-hidden="true"
+              />
+
+              <div className="invitation-seal" aria-hidden="true">
+                <SparkIcon />
+              </div>
+              <p className="invitation-overline">A WARM INVITATION · 誠摯邀請</p>
+              <h1 id="invitation-title">
+                給親愛的您，
+                <br />
+                <em>一封綻放的邀請。</em>
+              </h1>
+              <div className="invitation-rule" aria-hidden="true">
+                <span />
+                <i />
+                <span />
+              </div>
+              <p className="invitation-message">
+                歲末成果展，邀您靜靜回望這一年——
+                <br className="invitation-desktop-break" />
+                導師的陪伴、實習的成長，都成了心裡的光。
+                <br className="invitation-desktop-break" />
+                讓路老師以一幅水彩，為這段旅程留下溫柔的紀念。
+              </p>
+              <p className="invitation-signature">
+                期待與您，一起綻放
+                <span>智晟團隊 敬邀</span>
+              </p>
+              <button
+                className="primary-button invitation-button"
+                onClick={acceptInvitation}
+              >
+                欣然赴約
+                <span className="button-arrow">
+                  <ArrowIcon />
+                </span>
+              </button>
+              <p className="invitation-footnote">為您留一席溫柔的光</p>
+            </article>
+          </div>
+        )}
+
+        {step === "upload" && (
+          <div className="guest-entry-layout">
+            <div className="guest-entry-copy">
+              <p className="eyebrow">
+                <span>
+                  <SparkIcon />
+                </span>
+                您的專屬邀請
+              </p>
+              <h1 ref={guestEntryHeadingRef} tabIndex={-1}>
+                留下名字，選一張喜歡的自己。
+              </h1>
+              <p>
+                填寫路老師通用 LINE ID，再上傳一張清楚的正面照片，
+                我們會把一路走來的光，畫成你的專屬水彩似顏繪。
+              </p>
+              <div className="guest-entry-note">
+                <span aria-hidden="true">01</span>
+                <p>
+                  <strong>LINE ID 會與作品一同保存</strong>
+                  方便日後在路老師系統中找到這次創作。
+                </p>
+              </div>
+            </div>
+
+            <form
+              className="guest-entry-form"
+              onSubmit={(event) => {
+                event.preventDefault();
+                reviewUpload();
+              }}
+            >
+              <div className="guest-entry-form-heading">
+                <span>RSVP</span>
+                <h2>準備你的似顏繪</h2>
+                <p>兩個步驟，就可以開始創作。</p>
+              </div>
+
+              <label className="guest-entry-field" htmlFor="guest-line-id">
+                <span>
+                  路老師通用 LINE ID
+                  <b>必填</b>
+                </span>
+                <input
+                  ref={lineIdInputRef}
+                  id="guest-line-id"
+                  name="lineId"
+                  type="text"
+                  value={lineId}
+                  onChange={(event) => {
+                    setLineId(event.target.value);
+                    setError(null);
+                  }}
+                  onBlur={() => {
+                    if (
+                      lineId.trim() &&
+                      !isValidLineId(normalizeLineId(lineId))
+                    ) {
+                      setError(
+                        "LINE ID 格式需為「數字-姓名-地區」，例如 112-張小明-南投縣。",
+                      );
+                    }
+                  }}
+                  placeholder="例如：112-張小明-南投縣"
+                  autoComplete="off"
+                  spellCheck={false}
+                  aria-describedby="guest-line-id-help"
+                  aria-invalid={error?.includes("LINE ID") || undefined}
+                  required
+                />
+                <small id="guest-line-id-help">格式：數字－姓名－地區</small>
+              </label>
+
+              <label
+                className={`guest-upload-field ${
+                  previewUrl && photoSource === "upload" ? "has-photo" : ""
+                }`}
+              >
+                <input
+                  ref={uploadInputRef}
+                  className="guest-file-input"
+                  type="file"
+                  name="image"
+                  accept="image/jpeg,image/png,image/webp"
+                  onChange={(event) =>
+                    selectUploadedPhoto(event.target.files?.[0])
+                  }
+                  aria-describedby="guest-photo-help"
+                />
+                {previewUrl && photoSource === "upload" ? (
+                  <>
+                    <Image
+                      src={previewUrl}
+                      alt="已選擇的人像照片預覽"
+                      fill
+                      unoptimized
+                      sizes="(max-width: 700px) 86vw, 360px"
+                    />
+                    <span className="guest-upload-change">點一下更換照片</span>
+                  </>
+                ) : (
+                  <span className="guest-upload-empty">
+                    <i>
+                      <PhotoUploadIcon />
+                    </i>
+                    <strong>選擇一張照片</strong>
+                    <small id="guest-photo-help">
+                      JPEG、PNG 或 WebP・最大 12 MB
+                    </small>
+                  </span>
+                )}
+              </label>
+
+              {error && (
+                <p className="guest-entry-error" role="alert">
+                  {error}
+                </p>
+              )}
+
+              <button type="submit" className="primary-button guest-entry-submit">
+                預覽我的照片
+                <span className="button-arrow">
+                  <ArrowIcon />
+                </span>
+              </button>
+              <button
+                type="button"
+                className="secondary-button guest-camera-option"
+                onClick={continueWithCamera}
+              >
+                <CameraIcon />
+                改用現場相機
+              </button>
+              <button
+                type="button"
+                className="text-button guest-entry-back"
+                onClick={() => {
+                  setError(null);
+                  setStep("invitation");
+                }}
+              >
+                返回邀請卡
+              </button>
+            </form>
+          </div>
+        )}
+
         {step === "intro" && (
           <div className="intro-grid">
             <div className="intro-copy">
@@ -363,7 +677,7 @@ export function CameraBooth({
                 </span>
                 路老師似顏繪
               </p>
-              <h1>
+              <h1 ref={introHeadingRef} tabIndex={-1}>
                 在路老師系統中
                 <br />
                 <em className="shining-headline">

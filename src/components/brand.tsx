@@ -9,6 +9,7 @@ export function BloomMark({ compact = false }: { compact?: boolean }) {
         alt=""
         className="brand-mark"
         aria-hidden="true"
+        loading="eager"
       />
       {!compact && (
         <span className="brand-name">

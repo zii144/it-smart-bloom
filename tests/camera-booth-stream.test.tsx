@@ -45,6 +45,27 @@ function stubCamera(
 
 let play: ReturnType<typeof vi.fn>;
 
+function enterBooth(container: HTMLElement) {
+  const invitationButton = [...container.querySelectorAll("button")].find(
+    (button) => button.textContent?.includes("欣然赴約"),
+  );
+  if (!invitationButton) throw new Error("invitation button not rendered");
+  fireEvent.click(invitationButton);
+}
+
+function enterCameraBooth(container: HTMLElement) {
+  enterBooth(container);
+  const lineId = container.querySelector<HTMLInputElement>("#guest-line-id");
+  if (!lineId) throw new Error("LINE ID input not rendered");
+  fireEvent.change(lineId, { target: { value: "112-張小明-南投縣" } });
+
+  const cameraButton = [...container.querySelectorAll("button")].find(
+    (button) => button.textContent?.includes("改用現場相機"),
+  );
+  if (!cameraButton) throw new Error("camera option not rendered");
+  fireEvent.click(cameraButton);
+}
+
 beforeEach(() => {
   window.localStorage.clear();
   Object.defineProperty(window, "isSecureContext", {
@@ -56,6 +77,14 @@ beforeEach(() => {
     configurable: true,
     value: play,
   });
+  Object.defineProperty(URL, "createObjectURL", {
+    configurable: true,
+    value: vi.fn(() => "blob:portrait-preview"),
+  });
+  Object.defineProperty(URL, "revokeObjectURL", {
+    configurable: true,
+    value: vi.fn(),
+  });
 });
 
 afterEach(() => {
@@ -64,11 +93,49 @@ afterEach(() => {
 });
 
 describe("CameraBooth stream attachment", () => {
+  it("opens the LINE ID and image upload form from the invitation", () => {
+    const { container } = render(<CameraBooth />);
+
+    expect(container.textContent).toContain("一封綻放的邀請");
+    expect(container.textContent).not.toContain("開啟相機");
+
+    enterBooth(container);
+
+    expect(container.textContent).toContain("路老師通用 LINE ID");
+    expect(container.querySelector('input[type="file"]')).toBeTruthy();
+    expect(container.textContent).toContain("改用現場相機");
+  });
+
+  it("previews a valid uploaded image after collecting the LINE ID", () => {
+    const { container } = render(<CameraBooth />);
+    enterBooth(container);
+
+    fireEvent.change(container.querySelector("#guest-line-id")!, {
+      target: { value: "112-張小明-南投縣" },
+    });
+    fireEvent.change(container.querySelector('input[type="file"]')!, {
+      target: {
+        files: [
+          new File([new Uint8Array([0xff, 0xd8, 0xff])], "portrait.jpg", {
+            type: "image/jpeg",
+          }),
+        ],
+      },
+    });
+    fireEvent.click(container.querySelector("button.guest-entry-submit")!);
+
+    expect(container.textContent).toContain("就選這張嗎");
+    expect(
+      container.querySelector('img[alt="你剛拍下的人像照片"]'),
+    ).toBeTruthy();
+  });
+
   it("attaches the stream to the video element and starts playback", async () => {
     const stream = fakeStream();
     stubCamera(stream);
 
     const { container } = render(<CameraBooth />);
+    enterCameraBooth(container);
     fireEvent.click(container.querySelector("button.primary-button")!);
 
     const video = await waitFor(() => {
@@ -85,6 +152,7 @@ describe("CameraBooth stream attachment", () => {
     stubCamera(fakeStream());
 
     const { container } = render(<CameraBooth />);
+    enterCameraBooth(container);
     fireEvent.click(container.querySelector("button.primary-button")!);
 
     const video = await waitFor(() => {
@@ -116,6 +184,7 @@ describe("CameraBooth camera picker", () => {
     stubCamera(fakeStream());
 
     const { container } = render(<CameraBooth />);
+    enterCameraBooth(container);
     fireEvent.click(container.querySelector("button.primary-button")!);
 
     await waitFor(() => expect(container.querySelector("video")).toBeTruthy());
@@ -135,6 +204,7 @@ describe("CameraBooth camera picker", () => {
     );
 
     const { container } = render(<CameraBooth />);
+    enterCameraBooth(container);
     fireEvent.click(container.querySelector("button.primary-button")!);
 
     const select = await waitFor(() => {
