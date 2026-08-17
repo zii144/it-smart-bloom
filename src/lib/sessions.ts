@@ -9,6 +9,7 @@ import {
   writeFile,
 } from "node:fs/promises";
 import path from "node:path";
+import type { GuestIdentity } from "@/lib/guest-identity";
 import type { ImageGenerationOptions } from "@/lib/image-options";
 
 export const SESSION_TTL_MS = 15 * 60 * 1000;
@@ -205,6 +206,7 @@ export async function createSession(
   file: File,
   generationOptions?: ImageGenerationOptions,
   source?: SessionSource,
+  identity?: GuestIdentity,
 ) {
   if (!SUPPORTED_IMAGE_TYPES.has(file.type)) {
     throw new SessionError("請使用 JPEG、PNG 或 WebP 格式的照片。", 415);
@@ -229,6 +231,15 @@ export async function createSession(
     inputMime: file.type,
     ...(source ? { source } : {}),
     ...(generationOptions ? { generationOptions } : {}),
+    ...(identity
+      ? {
+          identity: {
+            kind: identity.kind,
+            value: identity.value,
+            claimedAt: createdAt.toISOString(),
+          },
+        }
+      : {}),
   };
 
   await mkdir(sessionDirectory(id), { recursive: true });

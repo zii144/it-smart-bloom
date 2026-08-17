@@ -2,6 +2,11 @@ import { after } from "next/server";
 import QRCode from "qrcode";
 import { generateImage } from "@/lib/generate-image";
 import {
+  IdentityError,
+  parseGuestIdentity,
+  type GuestIdentity,
+} from "@/lib/guest-identity";
+import {
   parseImageOverrides,
   resolveImageOptions,
 } from "@/lib/image-options";
@@ -26,6 +31,11 @@ export async function POST(request: Request) {
       return Response.json({ error: "請提供一張照片。" }, { status: 400 });
     }
 
+    let identity: GuestIdentity | undefined;
+    if (formData.has("lineId")) {
+      identity = parseGuestIdentity({ lineId: formData.get("lineId") });
+    }
+
     const tuningEnabled = isImageTuningEnabled();
     let generationOptions = undefined;
     if (tuningEnabled) {
@@ -43,7 +53,12 @@ export async function POST(request: Request) {
       }
     }
 
-    const session = await createSession(image, generationOptions);
+    const session = await createSession(
+      image,
+      generationOptions,
+      undefined,
+      identity,
+    );
 
     // Persist to Firestore/Storage before the response so other serverless
     // instances (phone poll / image fetch) can find the session. `/tmp` is
@@ -96,6 +111,9 @@ export async function POST(request: Request) {
       },
     );
   } catch (error) {
+    if (error instanceof IdentityError) {
+      return Response.json({ error: error.message }, { status: 400 });
+    }
     if (error instanceof SessionError) {
       return Response.json({ error: error.message }, { status: error.status });
     }
