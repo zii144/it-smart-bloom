@@ -470,10 +470,18 @@ textarea {
 button,
 a {
   -webkit-tap-highlight-color: transparent;
+  touch-action: manipulation;
 }
 
 button {
   font: inherit;
+}
+
+button:focus-visible,
+a:focus-visible,
+select:focus-visible {
+  outline: 3px solid rgba(185, 84, 69, 0.72);
+  outline-offset: 4px;
 }
 
 .booth-shell,
@@ -627,6 +635,602 @@ button {
 .booth-stage-sharing::before {
   opacity: 0.13;
   background-image: url("/images/watercolor/sunny-road.jpg");
+}
+
+.booth-stage-invitation {
+  place-items: center;
+  padding-top: 32px;
+  padding-bottom: 40px;
+}
+
+.invitation-welcome {
+  position: relative;
+  display: grid;
+  width: min(100%, 920px);
+  place-items: center;
+  padding: 30px 54px;
+}
+
+.invitation-welcome::before {
+  position: absolute;
+  z-index: -1;
+  width: 260px;
+  height: 180px;
+  left: -3%;
+  bottom: 5%;
+  border-radius: 44% 56% 50% 50%;
+  content: "";
+  opacity: 0.55;
+  background:
+    radial-gradient(ellipse at 30% 68%, rgba(122, 157, 180, 0.35), transparent 52%),
+    radial-gradient(ellipse at 70% 38%, rgba(143, 174, 146, 0.42), transparent 58%);
+  filter: blur(4px);
+  transform: rotate(11deg);
+}
+
+.invitation-card {
+  position: relative;
+  display: flex;
+  width: min(100%, 730px);
+  flex-direction: column;
+  align-items: center;
+  overflow: hidden;
+  padding: clamp(42px, 5vw, 64px) clamp(30px, 7vw, 80px) 38px;
+  border: 1px solid rgba(185, 84, 69, 0.22);
+  border-radius: 6px;
+  color: var(--ink);
+  background:
+    linear-gradient(rgba(255, 250, 240, 0.91), rgba(255, 250, 240, 0.91)),
+    url("data:image/svg+xml,%3Csvg viewBox='0 0 220 220' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='p'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='.72' numOctaves='4' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23p)' opacity='.18'/%3E%3C/svg%3E"),
+    var(--paper);
+  box-shadow:
+    0 38px 90px rgba(53, 80, 67, 0.18),
+    0 2px 0 rgba(255, 255, 255, 0.88) inset;
+  text-align: center;
+  animation: invitation-arrive 400ms cubic-bezier(0.2, 0.72, 0.28, 1) both;
+}
+
+.invitation-card::before {
+  position: absolute;
+  inset: 13px;
+  border: 1px solid rgba(185, 84, 69, 0.19);
+  content: "";
+  pointer-events: none;
+}
+
+.invitation-card::after {
+  position: absolute;
+  width: 190px;
+  height: 100px;
+  right: -56px;
+  bottom: -28px;
+  border-radius: 50%;
+  content: "";
+  opacity: 0.42;
+  background:
+    radial-gradient(ellipse at 30% 55%, rgba(239, 189, 85, 0.42), transparent 55%),
+    radial-gradient(ellipse at 70% 35%, rgba(217, 110, 89, 0.28), transparent 58%);
+  filter: blur(5px);
+  transform: rotate(-12deg);
+  pointer-events: none;
+}
+
+.invitation-corner {
+  position: absolute;
+  width: 54px;
+  height: 54px;
+  border-color: rgba(185, 84, 69, 0.4);
+  pointer-events: none;
+}
+
+.invitation-corner-one {
+  top: 25px;
+  left: 25px;
+  border-top: 1px solid;
+  border-left: 1px solid;
+}
+
+.invitation-corner-two {
+  right: 25px;
+  bottom: 25px;
+  border-right: 1px solid;
+  border-bottom: 1px solid;
+}
+
+.invitation-seal {
+  position: relative;
+  z-index: 1;
+  display: grid;
+  width: 52px;
+  height: 52px;
+  margin-bottom: 18px;
+  place-items: center;
+  border-radius: 48% 52% 44% 56% / 56% 45% 55% 44%;
+  color: var(--paper);
+  background:
+    radial-gradient(circle at 34% 26%, rgba(245, 151, 125, 0.95), transparent 38%),
+    var(--coral-dark);
+  box-shadow:
+    0 6px 16px rgba(185, 84, 69, 0.2),
+    inset -3px -4px 8px rgba(126, 54, 46, 0.18);
+  transform: rotate(-4deg);
+}
+
+.invitation-seal::after {
+  position: absolute;
+  inset: -4px 2px 1px -3px;
+  z-index: -1;
+  border-radius: 53% 47% 54% 46%;
+  content: "";
+  background: rgba(217, 110, 89, 0.25);
+  transform: rotate(10deg);
+}
+
+.invitation-seal svg {
+  width: 26px;
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 1.35;
+}
+
+.invitation-seal .spark-wash {
+  fill: rgba(255, 250, 240, 0.2);
+  stroke: none;
+}
+
+.invitation-overline {
+  margin: 0 0 14px;
+  color: var(--coral-dark);
+  font-size: 10px;
+  font-weight: 800;
+  letter-spacing: 0.22em;
+}
+
+.invitation-card h1 {
+  margin: 0;
+  font-family: var(--serif);
+  font-size: clamp(43px, 5.1vw, 66px);
+  font-weight: 500;
+  letter-spacing: -0.055em;
+  line-height: 1.16;
+}
+
+.invitation-card h1 em {
+  color: var(--coral);
+  font-weight: 500;
+}
+
+.invitation-rule {
+  display: grid;
+  width: min(100%, 250px);
+  grid-template-columns: 1fr auto 1fr;
+  align-items: center;
+  gap: 12px;
+  margin: 24px 0 20px;
+}
+
+.invitation-rule span {
+  height: 1px;
+  background: linear-gradient(90deg, transparent, rgba(185, 84, 69, 0.4));
+}
+
+.invitation-rule span:last-child {
+  transform: rotate(180deg);
+}
+
+.invitation-rule i {
+  width: 7px;
+  height: 7px;
+  border: 1px solid rgba(185, 84, 69, 0.55);
+  transform: rotate(45deg);
+}
+
+.invitation-message {
+  margin: 0;
+  color: var(--ink-soft);
+  font-size: clamp(15px, 1.5vw, 18px);
+  line-height: 1.9;
+}
+
+.invitation-signature {
+  margin: 19px 0 0;
+  color: var(--ink);
+  font-size: 15px;
+  font-weight: 650;
+  letter-spacing: 0.06em;
+}
+
+.invitation-signature span {
+  display: block;
+  margin-top: 6px;
+  color: var(--ink-soft);
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.15em;
+}
+
+.invitation-button {
+  position: relative;
+  z-index: 1;
+  min-width: 170px;
+  margin-top: 26px;
+}
+
+.invitation-button:active {
+  transform: scale(0.98);
+}
+
+.invitation-footnote {
+  margin: 14px 0 0;
+  color: var(--ink-soft);
+  font-size: 9px;
+  font-weight: 700;
+  letter-spacing: 0.18em;
+}
+
+.invitation-flower {
+  position: absolute;
+  z-index: 2;
+  width: 178px;
+  aspect-ratio: 1;
+  top: 5px;
+  right: -4px;
+  overflow: hidden;
+  border: 7px solid rgba(255, 250, 240, 0.78);
+  border-radius: 50%;
+  opacity: 0.8;
+  box-shadow: 0 24px 48px rgba(53, 80, 67, 0.16);
+  transform: rotate(7deg);
+  pointer-events: none;
+}
+
+.invitation-flower img {
+  object-fit: cover;
+  filter: saturate(0.82) brightness(1.06);
+}
+
+@keyframes invitation-arrive {
+  from {
+    opacity: 0;
+    transform: translateY(18px) scale(0.985);
+  }
+
+  to {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+  }
+}
+
+.booth-stage-upload {
+  place-items: center;
+}
+
+.booth-stage-upload::before {
+  opacity: 0.08;
+  background-image: url("/images/watercolor/revision.jpg");
+}
+
+.guest-entry-layout {
+  display: grid;
+  width: min(100%, 1120px);
+  grid-template-columns: minmax(0, 0.88fr) minmax(420px, 0.92fr);
+  align-items: center;
+  gap: clamp(40px, 7vw, 96px);
+}
+
+.guest-entry-copy {
+  max-width: 530px;
+}
+
+.guest-entry-copy h1 {
+  margin: 0;
+  font-family: var(--serif);
+  font-size: clamp(45px, 4.6vw, 66px);
+  font-weight: 500;
+  letter-spacing: -0.055em;
+  line-height: 1.12;
+}
+
+.guest-entry-copy h1:focus,
+.intro-copy h1:focus {
+  outline: none;
+}
+
+.guest-entry-copy > p:not(.eyebrow) {
+  margin: 24px 0 0;
+  color: var(--ink-soft);
+  font-size: 17px;
+  line-height: 1.75;
+}
+
+.guest-entry-note {
+  display: flex;
+  max-width: 460px;
+  align-items: flex-start;
+  gap: 14px;
+  margin-top: 34px;
+  padding-top: 22px;
+  border-top: 1px solid var(--line);
+}
+
+.guest-entry-note > span {
+  display: grid;
+  width: 34px;
+  height: 34px;
+  flex: 0 0 auto;
+  place-items: center;
+  border-radius: 50%;
+  color: var(--coral-dark);
+  background: rgba(217, 110, 89, 0.11);
+  font-size: 11px;
+  font-weight: 800;
+}
+
+.guest-entry-note p {
+  margin: 0;
+  color: var(--ink-soft);
+  font-size: 13px;
+  line-height: 1.65;
+}
+
+.guest-entry-note strong {
+  display: block;
+  margin-bottom: 2px;
+  color: var(--ink);
+  font-size: 14px;
+}
+
+.guest-entry-form {
+  position: relative;
+  width: min(100%, 500px);
+  justify-self: end;
+  padding: 34px;
+  border: 1px solid rgba(185, 84, 69, 0.18);
+  border-radius: 28px;
+  background:
+    linear-gradient(rgba(255, 250, 240, 0.94), rgba(255, 250, 240, 0.94)),
+    url("data:image/svg+xml,%3Csvg viewBox='0 0 220 220' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='p'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='.72' numOctaves='4' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23p)' opacity='.16'/%3E%3C/svg%3E"),
+    var(--paper);
+  box-shadow:
+    0 28px 70px rgba(53, 80, 67, 0.16),
+    0 2px 0 rgba(255, 255, 255, 0.86) inset;
+  animation: invitation-arrive 320ms cubic-bezier(0.2, 0.72, 0.28, 1) both;
+}
+
+.guest-entry-form::before {
+  position: absolute;
+  inset: 10px;
+  border: 1px solid rgba(185, 84, 69, 0.12);
+  border-radius: 20px;
+  content: "";
+  pointer-events: none;
+}
+
+.guest-entry-form-heading {
+  position: relative;
+  margin-bottom: 24px;
+}
+
+.guest-entry-form-heading > span {
+  color: var(--coral-dark);
+  font-size: 9px;
+  font-weight: 800;
+  letter-spacing: 0.2em;
+}
+
+.guest-entry-form-heading h2 {
+  margin: 5px 0 4px;
+  font-family: var(--serif);
+  font-size: 28px;
+  font-weight: 650;
+  letter-spacing: -0.035em;
+}
+
+.guest-entry-form-heading p {
+  margin: 0;
+  color: var(--ink-soft);
+  font-size: 13px;
+}
+
+.guest-entry-field {
+  position: relative;
+  display: grid;
+  gap: 8px;
+}
+
+.guest-entry-field > span {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  color: var(--ink);
+  font-size: 13px;
+  font-weight: 750;
+}
+
+.guest-entry-field b {
+  padding: 3px 7px;
+  border-radius: 999px;
+  color: var(--coral-dark);
+  background: rgba(217, 110, 89, 0.1);
+  font-size: 9px;
+  letter-spacing: 0.06em;
+}
+
+.guest-entry-field input {
+  width: 100%;
+  min-height: 52px;
+  padding: 0 15px;
+  border: 1px solid rgba(36, 61, 55, 0.2);
+  border-radius: 14px;
+  outline: none;
+  color: var(--ink);
+  background: rgba(255, 255, 255, 0.72);
+  font-size: 16px;
+  transition:
+    border-color 180ms ease,
+    box-shadow 180ms ease,
+    background 180ms ease;
+}
+
+.guest-entry-field input::placeholder {
+  color: rgba(94, 116, 109, 0.68);
+}
+
+.guest-entry-field input:focus {
+  border-color: var(--coral-dark);
+  background: white;
+  box-shadow: 0 0 0 4px rgba(217, 110, 89, 0.12);
+}
+
+.guest-entry-field input[aria-invalid="true"] {
+  border-color: var(--coral-dark);
+}
+
+.guest-entry-field small {
+  color: var(--ink-soft);
+  font-size: 11px;
+  line-height: 1.45;
+}
+
+.guest-upload-field {
+  position: relative;
+  display: grid;
+  min-height: 180px;
+  margin-top: 20px;
+  overflow: hidden;
+  place-items: center;
+  border: 1px dashed rgba(36, 61, 55, 0.32);
+  border-radius: 18px;
+  cursor: pointer;
+  background:
+    radial-gradient(circle at 82% 18%, rgba(239, 189, 85, 0.16), transparent 28%),
+    rgba(143, 174, 146, 0.08);
+  transition:
+    border-color 180ms ease,
+    background 180ms ease,
+    box-shadow 180ms ease;
+}
+
+.guest-upload-field:hover,
+.guest-upload-field:focus-within {
+  border-color: var(--coral-dark);
+  background-color: rgba(217, 110, 89, 0.06);
+  box-shadow: 0 0 0 4px rgba(217, 110, 89, 0.1);
+}
+
+.guest-file-input {
+  position: absolute;
+  z-index: 3;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  cursor: pointer;
+  opacity: 0;
+}
+
+.guest-upload-empty {
+  display: grid;
+  place-items: center;
+  text-align: center;
+}
+
+.guest-upload-empty i {
+  display: grid;
+  width: 48px;
+  height: 48px;
+  margin-bottom: 10px;
+  place-items: center;
+  border-radius: 50%;
+  color: var(--ink);
+  background: rgba(239, 189, 85, 0.38);
+  transform: rotate(-3deg);
+}
+
+.guest-upload-empty svg {
+  width: 23px;
+  fill: none;
+  stroke: currentColor;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+  stroke-width: 1.5;
+}
+
+.guest-upload-empty strong {
+  font-size: 14px;
+}
+
+.guest-upload-empty small {
+  margin-top: 5px;
+  color: var(--ink-soft);
+  font-size: 11px;
+}
+
+.guest-upload-field.has-photo {
+  min-height: 220px;
+  border-style: solid;
+}
+
+.guest-upload-field.has-photo img {
+  object-fit: cover;
+}
+
+.guest-upload-field.has-photo::after {
+  position: absolute;
+  z-index: 1;
+  inset: 0;
+  content: "";
+  background: linear-gradient(180deg, transparent 58%, rgba(24, 55, 43, 0.58));
+  pointer-events: none;
+}
+
+.guest-upload-change {
+  position: absolute;
+  z-index: 2;
+  right: 14px;
+  bottom: 12px;
+  padding: 6px 10px;
+  border-radius: 999px;
+  color: white;
+  background: rgba(24, 55, 43, 0.78);
+  font-size: 10px;
+  font-weight: 700;
+}
+
+.guest-entry-error {
+  margin: 13px 0 0;
+  color: var(--coral-dark);
+  font-size: 12px;
+  font-weight: 700;
+  line-height: 1.55;
+}
+
+.guest-entry-submit,
+.guest-camera-option {
+  position: relative;
+  width: 100%;
+}
+
+.guest-entry-submit {
+  margin-top: 22px;
+}
+
+.guest-camera-option {
+  margin-top: 10px;
+}
+
+.guest-camera-option svg {
+  width: 20px;
+  fill: none;
+  stroke: currentColor;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+  stroke-width: 1.5;
+}
+
+.guest-entry-back {
+  display: block;
+  min-height: 44px;
+  margin: 8px auto -8px;
 }
 
 
@@ -855,6 +1459,11 @@ button {
     opacity: 0.62;
     animation: none;
     transform: scale(0.72);
+  }
+
+  .invitation-card,
+  .guest-entry-form {
+    animation: none;
   }
 }
 
@@ -1836,6 +2445,29 @@ button {
 }
 
 @media (max-width: 900px) {
+  .invitation-welcome {
+    padding-right: 34px;
+    padding-left: 34px;
+  }
+
+  .invitation-flower {
+    width: 142px;
+    right: -8px;
+  }
+
+  .guest-entry-layout {
+    grid-template-columns: minmax(0, 0.68fr) minmax(390px, 1fr);
+    gap: 30px;
+  }
+
+  .guest-entry-copy h1 {
+    font-size: clamp(40px, 5.4vw, 54px);
+  }
+
+  .guest-entry-copy > p:not(.eyebrow) {
+    font-size: 15px;
+  }
+
   .intro-grid {
     grid-template-columns: 1fr 0.7fr;
     gap: 35px;
@@ -2046,6 +2678,159 @@ button {
   .booth-stage {
     min-height: calc(100svh - 116px);
     padding: 25px 18px 34px;
+  }
+
+  .booth-stage-invitation {
+    padding: 18px 14px 26px;
+  }
+
+  .booth-stage-upload {
+    padding: 30px 18px 38px;
+  }
+
+  .guest-entry-layout {
+    width: min(100%, 500px);
+    grid-template-columns: 1fr;
+    gap: 28px;
+  }
+
+  .guest-entry-copy {
+    max-width: 430px;
+    margin: 0 auto;
+    text-align: center;
+  }
+
+  .guest-entry-copy .eyebrow {
+    justify-content: center;
+  }
+
+  .guest-entry-copy h1 {
+    font-size: clamp(36px, 10vw, 46px);
+  }
+
+  .guest-entry-copy > p:not(.eyebrow) {
+    margin-top: 16px;
+    font-size: 15px;
+    line-height: 1.7;
+  }
+
+  .guest-entry-note {
+    margin-top: 22px;
+    padding-top: 18px;
+    text-align: left;
+  }
+
+  .guest-entry-form {
+    width: 100%;
+    justify-self: center;
+    padding: 26px 22px;
+    border-radius: 24px;
+  }
+
+  .guest-entry-form::before {
+    inset: 8px;
+    border-radius: 17px;
+  }
+
+  .guest-entry-form-heading {
+    margin-bottom: 20px;
+  }
+
+  .guest-entry-form-heading h2 {
+    font-size: 25px;
+  }
+
+  .guest-upload-field {
+    min-height: 160px;
+  }
+
+  .guest-upload-field.has-photo {
+    min-height: 210px;
+  }
+
+  .invitation-welcome {
+    width: 100%;
+    padding: 0;
+  }
+
+  .invitation-welcome::before,
+  .invitation-flower {
+    display: none;
+  }
+
+  .invitation-card {
+    width: min(100%, 470px);
+    padding: 30px 20px 23px;
+  }
+
+  .invitation-card::before {
+    inset: 9px;
+  }
+
+  .invitation-corner {
+    width: 34px;
+    height: 34px;
+  }
+
+  .invitation-corner-one {
+    top: 17px;
+    left: 17px;
+  }
+
+  .invitation-corner-two {
+    right: 17px;
+    bottom: 17px;
+  }
+
+  .invitation-seal {
+    width: 44px;
+    height: 44px;
+    margin-bottom: 12px;
+  }
+
+  .invitation-seal svg {
+    width: 22px;
+  }
+
+  .invitation-overline {
+    margin-bottom: 10px;
+    font-size: 8px;
+    letter-spacing: 0.15em;
+  }
+
+  .invitation-card h1 {
+    font-size: clamp(32px, 9.5vw, 43px);
+    line-height: 1.2;
+  }
+
+  .invitation-rule {
+    width: 180px;
+    margin: 16px 0 14px;
+  }
+
+  .invitation-message {
+    max-width: 330px;
+    font-size: 14px;
+    line-height: 1.75;
+  }
+
+  .invitation-desktop-break {
+    display: none;
+  }
+
+  .invitation-signature {
+    margin-top: 14px;
+    font-size: 13px;
+  }
+
+  .invitation-button {
+    min-height: 52px;
+    margin-top: 19px;
+  }
+
+  .invitation-footnote {
+    margin-top: 9px;
+    font-size: 8px;
   }
 
   .intro-grid {
