@@ -1092,6 +1092,95 @@ select:focus-visible {
   line-height: 1.45;
 }
 
+/* ---- Identity challenge (驗證手機號碼) ---- */
+
+.guest-identity-start {
+  margin-top: 14px;
+}
+
+.guest-identity-challenge {
+  display: grid;
+  gap: 12px;
+  margin-top: 16px;
+  padding: 16px;
+  border: 1px solid rgba(36, 61, 55, 0.16);
+  border-radius: 16px;
+  background: rgba(143, 174, 146, 0.1);
+}
+
+.guest-identity-question {
+  display: grid;
+  gap: 4px;
+  color: var(--ink-soft);
+  font-size: 12px;
+  line-height: 1.5;
+}
+
+.guest-identity-question strong {
+  color: var(--ink);
+  font-size: 14px;
+  font-weight: 750;
+}
+
+.guest-identity-options {
+  display: grid;
+  gap: 8px;
+  grid-template-columns: repeat(auto-fit, minmax(120px, 1fr));
+}
+
+.guest-identity-option {
+  min-height: 52px;
+  padding: 0 12px;
+  font-size: 16px;
+}
+
+.guest-identity-option:disabled {
+  cursor: progress;
+  opacity: 0.55;
+}
+
+.guest-identity-attempts {
+  color: var(--coral-dark);
+  font-size: 11px;
+  font-weight: 650;
+}
+
+.guest-identity-verified {
+  display: grid;
+  gap: 4px;
+  margin-top: 16px;
+  padding: 14px 16px;
+  border: 1px solid rgba(143, 174, 146, 0.5);
+  border-radius: 16px;
+  color: var(--ink-soft);
+  background: rgba(143, 174, 146, 0.14);
+  font-size: 12px;
+  line-height: 1.5;
+}
+
+.guest-identity-verified strong {
+  color: var(--ink);
+  font-size: 14px;
+  font-weight: 750;
+}
+
+.guest-identity-verified .text-button {
+  justify-self: start;
+  margin-top: 4px;
+}
+
+/* The photo picker stays visibly out of reach until the number is proven. */
+.guest-upload-field.is-locked {
+  cursor: not-allowed;
+  opacity: 0.45;
+}
+
+.guest-entry-submit:disabled,
+.guest-camera-option:disabled {
+  cursor: not-allowed;
+  opacity: 0.45;
+}
+
 .guest-upload-field {
   position: relative;
   display: grid;

@@ -1,4 +1,5 @@
-import { getSession, publicSession, SessionError } from "@/lib/sessions";
+import { errorResponse } from "@/lib/api-errors";
+import { getSession, publicSession } from "@/lib/sessions";
 
 export const runtime = "nodejs";
 
@@ -13,11 +14,8 @@ export async function GET(
       headers: { "Cache-Control": "no-store" },
     });
   } catch (error) {
-    if (error instanceof SessionError) {
-      return Response.json({ error: error.message }, { status: error.status });
-    }
-
-    console.error("Failed to read session:", error);
-    return Response.json({ error: "無法讀取這個創作空間。" }, { status: 500 });
+    return errorResponse(error, "Failed to read session", {
+      message: "無法讀取這個創作空間。",
+    });
   }
 }

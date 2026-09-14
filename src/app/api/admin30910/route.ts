@@ -3,6 +3,7 @@ import {
   resolveAdminAuth,
 } from "@/lib/admin-auth";
 import { getAdminHealth } from "@/lib/admin-health";
+import { maskIdentityValue } from "@/lib/guest-identity";
 import { defaultImageOptions } from "@/lib/image-options";
 import { readSpendSnapshot } from "@/lib/image-spend";
 import { listArchiveSessions } from "@/lib/portrait-archive";
@@ -61,7 +62,7 @@ export async function GET(request: Request) {
         createdAt: session.createdAt,
         updatedAt: session.generationStartedAt ?? session.createdAt,
         identity: session.identity
-          ? `${session.identity.kind}:${session.identity.value}`
+          ? `${session.identity.kind}:${maskIdentityValue(session.identity.value)}`
           : null,
         avatarRequestStatus: null,
         fakeGenerate: Boolean(session.generationOptions?.fakeGenerate),
@@ -80,7 +81,7 @@ export async function GET(request: Request) {
         updatedAt: session.updatedAt,
         identity:
           session.identityKind && session.identityValue
-            ? `${session.identityKind}:${session.identityValue}`
+            ? `${session.identityKind}:${maskIdentityValue(session.identityValue)}`
             : null,
         avatarRequestStatus: session.avatarRequestStatus,
         fakeGenerate: null,

@@ -2,6 +2,7 @@ import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { afterAll, beforeAll, beforeEach } from "vitest";
+import { resetLockoutCache } from "@/lib/identity-lockout";
 import { resetSpendCache } from "@/lib/image-spend";
 
 /**
@@ -19,6 +20,9 @@ const VOLATILE_ENV_KEYS = [
   "FAKE_GENERATE_DELAY_MS",
   "FAKE_GENERATE_MODE",
   "ADMIN_DASHBOARD_SECRET",
+  "IDENTITY_KEY_SECRET",
+  "ROAD_TEACHER_IDENTITY_API_URL",
+  "ROAD_TEACHER_API_KEY",
   "NEXT_PUBLIC_RT_MOCK",
   "NEXT_PUBLIC_RT_MOCK_DELAY_MS",
   "NEXT_PUBLIC_RT_SET_AVATAR_URL",
@@ -51,4 +55,6 @@ beforeEach(() => {
   process.env.NEXT_PUBLIC_RT_MOCK_DELAY_MS = "0";
   // Renders counted by one test must not push the next one over a ceiling.
   resetSpendCache();
+  // Attempts counted by one test must not lock out the next one.
+  resetLockoutCache();
 });

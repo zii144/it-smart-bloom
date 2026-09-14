@@ -1,7 +1,8 @@
 import { generateImage } from "@/lib/generate-image";
 import { parseImageOverrides } from "@/lib/image-options";
 import { isImageTuningEnabled } from "@/lib/runtime-env";
-import { getSession, publicSession, SessionError } from "@/lib/sessions";
+import { errorJson, errorResponse } from "@/lib/api-errors";
+import { getSession, publicSession } from "@/lib/sessions";
 
 export const runtime = "nodejs";
 export const maxDuration = 180;
@@ -50,10 +51,6 @@ export async function POST(
       headers: { "Cache-Control": "no-store" },
     });
   } catch (error) {
-    if (error instanceof SessionError) {
-      return Response.json({ error: error.message }, { status: error.status });
-    }
-
     // Checked before the config branch: the quality error names the
     // OPENAI_IMAGE_QUALITY env var but is still a bad-request from the caller.
     if (
@@ -62,16 +59,16 @@ export async function POST(
         error.message.includes("必須是") ||
         error.message.includes("outputCompression"))
     ) {
-      return Response.json({ error: error.message }, { status: 400 });
+      return errorJson("IMAGE_OPTIONS_INVALID", error.message, 400);
     }
 
     if (error instanceof Error && error.message.includes("OPENAI")) {
-      return Response.json({ error: error.message }, { status: 500 });
+      return errorJson("GENERATION_FAILED", error.message, 500);
     }
 
-    return Response.json(
-      { error: "人像生成失敗，請重新拍攝後再試一次。" },
-      { status: 500 },
-    );
+    return errorResponse(error, "Failed to generate portrait", {
+      message: "人像生成失敗，請重新拍攝後再試一次。",
+      code: "GENERATION_FAILED",
+    });
   }
 }
