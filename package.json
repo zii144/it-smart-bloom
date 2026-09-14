@@ -6,6 +6,7 @@
     "dev": "node scripts/free-dev-ports.cjs && firebase emulators:exec --project it-smart-bloom-tmp --only firestore,storage --ui \"next dev --port 3059\"",
     "dev:next": "next dev --port 3059",
     "emulators": "firebase emulators:start --project it-smart-bloom-tmp --only firestore,storage",
+    "prebuild": "node --experimental-strip-types --no-warnings=ExperimentalWarning scripts/env-guard.ts",
     "build": "next build",
     "start": "next start --port 3059",
     "lint": "eslint",

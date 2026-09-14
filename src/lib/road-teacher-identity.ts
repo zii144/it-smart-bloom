@@ -1,4 +1,5 @@
 import { AppError, ConfigError } from "@/lib/api-errors";
+import { checkDeployEnvironment } from "@/lib/deploy-env";
 import type { GuestIdentity } from "@/lib/guest-identity";
 
 /**
@@ -42,6 +43,23 @@ function endpoint(path: string) {
       "IDENTITY_SERVICE_UNAVAILABLE",
     );
   }
+
+  // The build guard should have caught this, but a deployment that slipped past
+  // it must refuse the call rather than read another stage's teacher records.
+  // Narrow on purpose: only this cross-stage call fails, not the whole app.
+  const crossStage = checkDeployEnvironment().problems.find(
+    (problem) => problem.variable === "ROAD_TEACHER_IDENTITY_API_URL",
+  );
+  if (crossStage) {
+    console.error(
+      `[rt-identity] refusing a cross-environment call: ${crossStage.detail}`,
+    );
+    throw new ConfigError(
+      "系統環境設定有誤，暫時無法驗證手機號碼。",
+      "ENVIRONMENT_MISCONFIGURED",
+    );
+  }
+
   return `${base.replace(/\/+$/, "")}/${path}`;
 }
 

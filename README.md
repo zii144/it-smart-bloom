@@ -96,6 +96,41 @@ skipped, and `POST /api/sessions` answers `identityStored: false` so the booth
 can say so instead of implying the number was saved. **Rotating this secret
 orphans every identity document already written** — treat it as permanent.
 
+### Environment isolation
+
+A preview deployment must never read or write production data, and production
+must never call a dev backend. Vercel gives every branch its own preview URL,
+but a Firebase project and a Cloud Function are **not** per-branch — there is
+one of each per stage. So what gets enforced is not "which deployment is this"
+but "is this deployment wired to the backends its stage may touch".
+
+| Stage | Firebase | road-teacher | `APP_BASE_URL` |
+| --- | --- | --- | --- |
+| production | `it-smart-bloom-tmp` | `road-teacher-prod` | pinned to the live domain |
+| preview | `it-smart-bloom-dev` | `road-teacher-fafb1` | **must be unset** |
+| local | emulators | `road-teacher-fafb1` | LAN IP, so a phone can scan |
+
+`scripts/env-guard.ts` runs as `prebuild`, so a mis-wired deployment **fails to
+build** instead of quietly touching the wrong project. The pairings live in
+`src/lib/deploy-env.ts` — a literal, so changing them is a reviewed pull request
+rather than a dashboard edit.
+
+Three details that matter:
+
+- **The stage comes from `VERCEL_ENV`**, which Vercel sets itself. Deriving it
+  from a variable a human types is the failure this guard exists to prevent: a
+  production deployment that claims to be a preview and is believed.
+- **Preview must leave `APP_BASE_URL` unset.** The booth encodes it into the QR
+  code; pinned to the live domain, a guest scanning a preview booth's QR lands
+  on production. Unset, the request origin is used, which is the preview URL.
+- **Local builds warn, deployed builds fail.** Local runtime is emulated and a
+  compile check connects to nothing — a guard that blocks `npm run build` just
+  gets deleted.
+
+`src/lib/road-teacher-identity.ts` re-checks at runtime and refuses a
+cross-stage call with `ENVIRONMENT_MISCONFIGURED` rather than reading another
+stage's teacher records. It is narrow on purpose: only that call fails.
+
 ### Identity verification (name challenge)
 
 A phone number is not taken on trust. Before a photo can be taken, the booth

@@ -29,6 +29,7 @@ export const ERROR_CODES = [
   // Server / dependencies
   "IDENTITY_KEY_UNAVAILABLE",
   "ARCHIVE_UNAVAILABLE",
+  "ENVIRONMENT_MISCONFIGURED",
   "GENERATION_FAILED",
   "INTERNAL_ERROR",
 ] as const;
