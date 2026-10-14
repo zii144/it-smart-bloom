@@ -612,10 +612,6 @@ export function SessionExperience({
         )}
       </section>
 
-      <footer className="mobile-footer">
-        用心創作・由 OpenAI 提供技術
-      </footer>
-
       <RoadTeacherLoginModal
         open={showRtLogin}
         sessionId={id}

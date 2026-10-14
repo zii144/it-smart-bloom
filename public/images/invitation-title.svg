@@ -1,0 +1,113 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="-300 -900 3680 1140" role="img" aria-label="成果展">
+  <defs>
+    <linearGradient id="green" x1="0" y1="0" x2="0.3" y2="1">
+      <stop offset="0" stop-color="#4a7a5f"/>
+      <stop offset="0.4" stop-color="#2f5a47"/>
+      <stop offset="0.7" stop-color="#22443a"/>
+      <stop offset="1" stop-color="#3f6b52"/>
+    </linearGradient>
+    <linearGradient id="coral" x1="0" y1="0" x2="0.3" y2="1">
+      <stop offset="0" stop-color="#ec8f73"/>
+      <stop offset="0.45" stop-color="#d9684f"/>
+      <stop offset="0.75" stop-color="#c7533f"/>
+      <stop offset="1" stop-color="#e98461"/>
+    </linearGradient>
+    <radialGradient id="goldWashA" cx="0.18" cy="0.95" r="0.75">
+      <stop offset="0" stop-color="#d9b25a" stop-opacity="0.85"/>
+      <stop offset="0.45" stop-color="#c9a850" stop-opacity="0.35"/>
+      <stop offset="1" stop-color="#c9a850" stop-opacity="0"/>
+    </radialGradient>
+    <radialGradient id="goldWashB" cx="0.9" cy="0.9" r="0.7">
+      <stop offset="0" stop-color="#d9b25a" stop-opacity="0.7"/>
+      <stop offset="0.5" stop-color="#c9a850" stop-opacity="0.25"/>
+      <stop offset="1" stop-color="#c9a850" stop-opacity="0"/>
+    </radialGradient>
+    <linearGradient id="ribbon" x1="0" y1="0" x2="1" y2="0">
+      <stop offset="0" stop-color="#e9896f"/>
+      <stop offset="0.5" stop-color="#d9684f"/>
+      <stop offset="1" stop-color="#eda182"/>
+    </linearGradient>
+    <filter id="wcGreen" x="-6%" y="-6%" width="112%" height="112%" color-interpolation-filters="sRGB">
+      <!-- coarse pigment blotches, used both as a tint mask and as shading -->
+      <feTurbulence type="fractalNoise" baseFrequency="0.0024 0.0030" numOctaves="3" seed="5" result="n1"/>
+      <feColorMatrix in="n1" type="matrix" values="0 0 0 0 0.5  0 0 0 0 0.6  0 0 0 0 0.3  2.2 0 0 0 -1.0" result="tintA"/>
+      <feComposite in="tintA" in2="SourceGraphic" operator="over" result="tinted"/>
+      <feColorMatrix in="n1" type="matrix" values="1 0 0 0 0  1 0 0 0 0  1 0 0 0 0  0 0 0 0 1" result="g1"/>
+      <feComponentTransfer in="g1" result="c1">
+        <feFuncR type="linear" slope="1.5" intercept="-0.25"/>
+        <feFuncG type="linear" slope="1.5" intercept="-0.25"/>
+        <feFuncB type="linear" slope="1.5" intercept="-0.25"/>
+      </feComponentTransfer>
+      <!-- fine paper granulation -->
+      <feTurbulence type="fractalNoise" baseFrequency="0.02" numOctaves="2" seed="9" result="n2"/>
+      <feColorMatrix in="n2" type="matrix" values="1 0 0 0 0  1 0 0 0 0  1 0 0 0 0  0 0 0 0 1" result="g2"/>
+      <feComponentTransfer in="g2" result="c2">
+        <feFuncR type="linear" slope="1.15" intercept="-0.08"/>
+        <feFuncG type="linear" slope="1.15" intercept="-0.08"/>
+        <feFuncB type="linear" slope="1.15" intercept="-0.08"/>
+      </feComponentTransfer>
+      <feBlend in="c2" in2="c1" mode="overlay" result="grain"/>
+      <feBlend in="grain" in2="tinted" mode="soft-light" result="textured"/>
+      <!-- pigment pooling at the stroke edges -->
+      <feMorphology in="SourceAlpha" operator="erode" radius="12" result="eroded"/>
+      <feGaussianBlur in="eroded" stdDeviation="10" result="erodedBlur"/>
+      <feComposite in="SourceAlpha" in2="erodedBlur" operator="arithmetic" k2="1" k3="-1" result="edge"/>
+      <feFlood flood-color="#13271f" flood-opacity="0.3" result="dark"/>
+      <feComposite in="dark" in2="edge" operator="in" result="edgeDark"/>
+      <feBlend in="edgeDark" in2="textured" mode="multiply" result="painted"/>
+      <!-- gold flecks -->
+      <feTurbulence type="turbulence" baseFrequency="0.075" numOctaves="1" seed="6" result="n3"/>
+      <feColorMatrix in="n3" type="matrix" values="0 0 0 0 0.95  0 0 0 0 0.82  0 0 0 0 0.45  6 0 0 0 -4.2" result="flecks"/>
+      <feComposite in="flecks" in2="SourceAlpha" operator="in" result="flecksIn"/>
+      <feBlend in="flecksIn" in2="painted" mode="screen" result="gilded"/>
+      <feColorMatrix in="gilded" type="saturate" values="1.25" result="vivid"/>
+      <feComposite in="vivid" in2="SourceAlpha" operator="in"/>
+    </filter>
+    <filter id="wcCoral" x="-6%" y="-6%" width="112%" height="112%" color-interpolation-filters="sRGB">
+      <!-- coarse pigment blotches, used both as a tint mask and as shading -->
+      <feTurbulence type="fractalNoise" baseFrequency="0.0024 0.0030" numOctaves="3" seed="21" result="n1"/>
+      <feColorMatrix in="n1" type="matrix" values="0 0 0 0 0.98  0 0 0 0 0.52  0 0 0 0 0.3  2.2 0 0 0 -1.0" result="tintA"/>
+      <feComposite in="tintA" in2="SourceGraphic" operator="over" result="tinted"/>
+      <feColorMatrix in="n1" type="matrix" values="1 0 0 0 0  1 0 0 0 0  1 0 0 0 0  0 0 0 0 1" result="g1"/>
+      <feComponentTransfer in="g1" result="c1">
+        <feFuncR type="linear" slope="1.5" intercept="-0.25"/>
+        <feFuncG type="linear" slope="1.5" intercept="-0.25"/>
+        <feFuncB type="linear" slope="1.5" intercept="-0.25"/>
+      </feComponentTransfer>
+      <!-- fine paper granulation -->
+      <feTurbulence type="fractalNoise" baseFrequency="0.02" numOctaves="2" seed="25" result="n2"/>
+      <feColorMatrix in="n2" type="matrix" values="1 0 0 0 0  1 0 0 0 0  1 0 0 0 0  0 0 0 0 1" result="g2"/>
+      <feComponentTransfer in="g2" result="c2">
+        <feFuncR type="linear" slope="1.15" intercept="-0.08"/>
+        <feFuncG type="linear" slope="1.15" intercept="-0.08"/>
+        <feFuncB type="linear" slope="1.15" intercept="-0.08"/>
+      </feComponentTransfer>
+      <feBlend in="c2" in2="c1" mode="overlay" result="grain"/>
+      <feBlend in="grain" in2="tinted" mode="soft-light" result="textured"/>
+      <!-- pigment pooling at the stroke edges -->
+      <feMorphology in="SourceAlpha" operator="erode" radius="12" result="eroded"/>
+      <feGaussianBlur in="eroded" stdDeviation="10" result="erodedBlur"/>
+      <feComposite in="SourceAlpha" in2="erodedBlur" operator="arithmetic" k2="1" k3="-1" result="edge"/>
+      <feFlood flood-color="#7a2e22" flood-opacity="0.3" result="dark"/>
+      <feComposite in="dark" in2="edge" operator="in" result="edgeDark"/>
+      <feBlend in="edgeDark" in2="textured" mode="multiply" result="painted"/>
+      <!-- gold flecks -->
+      <feTurbulence type="turbulence" baseFrequency="0.075" numOctaves="1" seed="22" result="n3"/>
+      <feColorMatrix in="n3" type="matrix" values="0 0 0 0 0.95  0 0 0 0 0.82  0 0 0 0 0.45  6 0 0 0 -4.2" result="flecks"/>
+      <feComposite in="flecks" in2="SourceAlpha" operator="in" result="flecksIn"/>
+      <feBlend in="flecksIn" in2="painted" mode="screen" result="gilded"/>
+      <feColorMatrix in="gilded" type="saturate" values="1.25" result="vivid"/>
+      <feComposite in="vivid" in2="SourceAlpha" operator="in"/>
+    </filter>
+  </defs>
+  <g>
+    <g filter="url(#wcGreen)"><path transform="translate(0,0) scale(1,-1)" fill="url(#green)" d="M360 435C356 279 349 211 333 196C327 191 320 189 307 189C291 189 256 190 236 192C258 276 261 361 261 433V435ZM116 647V433C116 263 109 63 15 -93L22 -100C145 -24 205 80 234 185V180C265 171 282 159 294 141C306 123 308 92 308 53C361 53 398 64 428 86C476 122 488 191 494 413C514 416 526 423 533 431L418 527L351 463H261V619H517C529 465 556 321 616 193C550 91 461 -3 346 -73L353 -84C483 -40 586 25 667 101C694 59 725 20 762 -16C808 -61 905 -112 963 -61C984 -43 978 -4 939 67L966 246L957 249C935 204 902 147 884 121C872 104 864 104 850 119C818 147 791 178 768 213C827 293 871 378 904 462C930 461 939 469 943 481L760 543C746 482 727 419 701 356C674 437 661 527 655 619H943C958 619 969 624 972 635C942 661 900 694 871 716C905 762 875 849 697 828L690 822C724 794 763 744 777 698C784 694 791 692 798 690L764 647H654C651 701 651 755 652 808C678 812 687 824 688 837L509 854C509 784 511 715 515 647H282L116 703Z"/></g>
+    <g filter="url(#wcCoral)"><path transform="translate(1040,0) scale(1,-1)" fill="url(#coral)" d="M156 779V353H176C235 353 296 384 296 398V421H423V301H36L44 273H334C272 152 162 26 22 -53L29 -63C191 -13 326 60 423 156V-95H450C524 -95 567 -65 568 -56V273H578C634 114 723 5 866 -62C882 6 922 52 974 65L976 77C836 104 684 172 601 273H945C959 273 971 278 974 289C921 333 835 396 835 396L758 301H568V421H701V375H726C776 375 845 406 846 415V731C864 735 875 743 881 750L754 846L691 779H304L156 836ZM423 751V616H296V751ZM568 751H701V616H568ZM423 588V449H296V588ZM568 588H701V449H568Z"/></g>
+    <g filter="url(#wcGreen)"><path transform="translate(2080,0) scale(1,-1)" fill="url(#green)" d="M292 628V756H760V628ZM542 567 379 581V458H291L292 514V600H760V563L613 576V458H515V545C535 548 541 556 542 567ZM824 542 762 458H747V540C767 543 774 550 775 561H784C828 561 899 582 900 588V733C921 738 934 747 940 755L811 851L750 784H313L145 840V513C145 313 136 90 21 -87L29 -93C180 3 245 134 272 267H333V103C333 82 327 71 285 48L363 -103C370 -99 377 -94 384 -86C480 -16 557 53 594 89L592 98L469 69V267H553C603 55 707 -34 874 -98C890 -28 928 19 985 35L986 47C891 59 798 79 722 118C777 132 833 147 876 161C899 156 909 161 915 170L784 267H952C966 267 977 272 980 283C934 326 856 391 856 391L786 295H747V430H906C921 430 931 435 934 446C893 485 824 542 824 542ZM277 295C285 341 289 386 291 430H379V295ZM678 144C634 175 597 215 571 267H767C746 234 711 185 678 144ZM613 295H515V430H613Z"/></g>
+    <g opacity="0.45">
+      <path transform="translate(0,0) scale(1,-1)" fill="url(#goldWashA)" d="M360 435C356 279 349 211 333 196C327 191 320 189 307 189C291 189 256 190 236 192C258 276 261 361 261 433V435ZM116 647V433C116 263 109 63 15 -93L22 -100C145 -24 205 80 234 185V180C265 171 282 159 294 141C306 123 308 92 308 53C361 53 398 64 428 86C476 122 488 191 494 413C514 416 526 423 533 431L418 527L351 463H261V619H517C529 465 556 321 616 193C550 91 461 -3 346 -73L353 -84C483 -40 586 25 667 101C694 59 725 20 762 -16C808 -61 905 -112 963 -61C984 -43 978 -4 939 67L966 246L957 249C935 204 902 147 884 121C872 104 864 104 850 119C818 147 791 178 768 213C827 293 871 378 904 462C930 461 939 469 943 481L760 543C746 482 727 419 701 356C674 437 661 527 655 619H943C958 619 969 624 972 635C942 661 900 694 871 716C905 762 875 849 697 828L690 822C724 794 763 744 777 698C784 694 791 692 798 690L764 647H654C651 701 651 755 652 808C678 812 687 824 688 837L509 854C509 784 511 715 515 647H282L116 703Z"/>
+      <path transform="translate(2080,0) scale(1,-1)" fill="url(#goldWashB)" d="M292 628V756H760V628ZM542 567 379 581V458H291L292 514V600H760V563L613 576V458H515V545C535 548 541 556 542 567ZM824 542 762 458H747V540C767 543 774 550 775 561H784C828 561 899 582 900 588V733C921 738 934 747 940 755L811 851L750 784H313L145 840V513C145 313 136 90 21 -87L29 -93C180 3 245 134 272 267H333V103C333 82 327 71 285 48L363 -103C370 -99 377 -94 384 -86C480 -16 557 53 594 89L592 98L469 69V267H553C603 55 707 -34 874 -98C890 -28 928 19 985 35L986 47C891 59 798 79 722 118C777 132 833 147 876 161C899 156 909 161 915 170L784 267H952C966 267 977 272 980 283C934 326 856 391 856 391L786 295H747V430H906C921 430 931 435 934 446C893 485 824 542 824 542ZM277 295C285 341 289 386 291 430H379V295ZM678 144C634 175 597 215 571 267H767C746 234 711 185 678 144ZM613 295H515V430H613Z"/>
+    </g>
+    <path d="M -330 -430 C -230 -200, -180 70, 30 120 C 170 150, 130 -50, -40 -10 C -150 20, -60 160, 170 150 S 820 60, 1220 110 S 1900 180, 2420 90 S 3020 40, 3350 110" fill="none" stroke="url(#ribbon)" stroke-width="13" stroke-linecap="round" opacity="0.92"/>
+  </g>
+</svg>
