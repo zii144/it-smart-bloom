@@ -50,6 +50,19 @@ function redactPath(objectPath: string) {
   return objectPath.replace(/mobile_\d+/g, "mobile_***");
 }
 
+/**
+ * A Storage ApiError carries the request (whose URL names the object, and
+ * so the mobile). Log only its redacted message and code, never the object.
+ */
+export function redactError(error: unknown) {
+  const message = error instanceof Error ? error.message : String(error);
+  const code = (error as { code?: unknown } | null)?.code;
+  return {
+    message: redactPath(message).replace(/mobile_?(%5F)?09\d{8}|09\d{8}/gi, "***"),
+    ...(code !== undefined ? { code } : {}),
+  };
+}
+
 async function uploadBytes(
   objectPath: string,
   bytes: Buffer,
@@ -69,7 +82,7 @@ async function uploadBytes(
   } catch (error) {
     console.error(
       `Firebase Storage upload failed for ${redactPath(objectPath)}:`,
-      error,
+      redactError(error),
     );
     return null;
   }
@@ -252,7 +265,7 @@ export async function readArchiveImage(objectPath: string): Promise<{
   } catch (error) {
     console.error(
       `Firebase Storage download failed for ${redactPath(objectPath)}:`,
-      error,
+      redactError(error),
     );
     return null;
   }
