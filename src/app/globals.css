@@ -705,13 +705,19 @@ select:focus-visible {
   animation: invitation-arrive 400ms cubic-bezier(0.2, 0.72, 0.28, 1) both;
 }
 
+/*
+ * The inner frame is drawn over the floral paper (which is nearly opaque
+ * along the frame's path) and multiplied into it, so it reads as ink on the
+ * paper: clear over the cream wash, and soft where a peony crosses it.
+ */
 .invitation-card::before {
   position: absolute;
   inset: 7.5% 7.5% 6.3% 8%;
-  z-index: 0;
-  border: 1px solid rgba(185, 84, 69, 0.36);
+  z-index: 1;
+  border: 1px solid rgba(185, 84, 69, 0.5);
   content: "";
   pointer-events: none;
+  mix-blend-mode: multiply;
 }
 
 .invitation-card > * {
@@ -722,7 +728,7 @@ select:focus-visible {
 .invitation-paper {
   position: absolute;
   inset: 0;
-  z-index: 1;
+  z-index: 0;
   pointer-events: none;
 }
 

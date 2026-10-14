@@ -485,7 +485,7 @@ export function CameraBooth({
                   alt=""
                   fill
                   sizes="(max-width: 700px) 100vw, 780px"
-                  priority
+                  preload
                 />
               </div>
               <span
@@ -514,7 +514,7 @@ export function CameraBooth({
                     width={3680}
                     height={1140}
                     unoptimized
-                    priority
+                    preload
                   />
                 </span>
               </h1>

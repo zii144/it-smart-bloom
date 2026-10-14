@@ -3,7 +3,10 @@
 floral paper.
 
 It starts from a screenshot of the original event poster (a macOS Preview
-window capture, 1556x2000), crops the window chrome, fades the poster's faint
+window capture, 1556x2000, of the poster image the event organisers
+distributed; it is not committed, so ask the project owner for it). The
+mask coordinates below are tied to that exact capture. The script crops the
+window chrome, fades the poster's faint
 inner frame lines, and masks out the text block, QR panel and corner marks with
 a feathered alpha channel. The result is the poster's watercolor paper and
 florals only, which the card stretches to its own size.
