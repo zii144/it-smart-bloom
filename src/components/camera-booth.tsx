@@ -63,6 +63,22 @@ function CameraIcon() {
   );
 }
 
+function InvitationRule() {
+  return (
+    <div className="invitation-rule" aria-hidden="true">
+      <span />
+      <svg viewBox="0 0 48 24">
+        <path d="M24 5l4 7-4 7-4-7z" />
+        <path d="M19 12c-5 0-8-5-13-3-3 1-2 6 3 5 3-.5 4-3 2-4" />
+        <path d="M29 12c5 0 8-5 13-3 3 1 2 6-3 5-3-.5-4-3-2-4" />
+        <circle cx="24" cy="1.5" r="1" />
+        <circle cx="24" cy="22.5" r="1" />
+      </svg>
+      <span />
+    </div>
+  );
+}
+
 function ArrowIcon() {
   return (
     <svg viewBox="0 0 24 24" aria-hidden="true">
@@ -462,17 +478,16 @@ export function CameraBooth({
             className="invitation-welcome"
             aria-labelledby="invitation-title"
           >
-            <div className="invitation-flower" aria-hidden="true">
-              <Image
-                src="/images/watercolor/peony.jpg"
-                alt=""
-                fill
-                sizes="180px"
-                loading="eager"
-              />
-            </div>
-
             <article className="invitation-card">
+              <div className="invitation-paper" aria-hidden="true">
+                <Image
+                  src="/images/watercolor/invitation-paper.webp"
+                  alt=""
+                  fill
+                  sizes="(max-width: 700px) 100vw, 780px"
+                  priority
+                />
+              </div>
               <span
                 className="invitation-corner invitation-corner-one"
                 aria-hidden="true"
@@ -482,30 +497,49 @@ export function CameraBooth({
                 aria-hidden="true"
               />
 
-              <div className="invitation-seal" aria-hidden="true">
-                <SparkIcon />
-              </div>
-              <p className="invitation-overline">A WARM INVITATION · 誠摯邀請</p>
-              <h1 id="invitation-title">
-                給親愛的您，
-                <br />
-                <em>一封綻放的邀請。</em>
-              </h1>
-              <div className="invitation-rule" aria-hidden="true">
-                <span />
-                <i />
-                <span />
-              </div>
-              <p className="invitation-message">
-                歲末成果展，邀您靜靜回望這一年——
-                <br className="invitation-desktop-break" />
-                導師的陪伴、實習的成長，都成了心裡的光。
-                <br className="invitation-desktop-break" />
-                讓路老師以一幅水彩，為這段旅程留下溫柔的紀念。
+              <p className="invitation-overline">
+                <span>交通部</span>
               </p>
+              <p className="invitation-program">
+                114至115年高齡者交通安全教育－
+                <br />
+                路老師培訓宣講計畫
+              </p>
+              <InvitationRule />
+              <h1 id="invitation-title">
+                <span className="invitation-title-mark">
+                  <Image
+                    src="/images/invitation-title.svg"
+                    alt="成果展"
+                    width={3680}
+                    height={1140}
+                    unoptimized
+                    priority
+                  />
+                </span>
+              </h1>
+              <InvitationRule />
+              <p className="invitation-title-sub">一起見證精彩成果</p>
+              <InvitationRule />
+              <dl className="invitation-details">
+                <div>
+                  <dt>日期</dt>
+                  <dd>115年11月10日 星期二</dd>
+                </div>
+                <div>
+                  <dt>時間</dt>
+                  <dd>14:00–15:30</dd>
+                </div>
+                <div>
+                  <dt>場地</dt>
+                  <dd>
+                    晶宴會館—民權館
+                    <small>臺北市中山區江寧里民權東路三段2號B1</small>
+                  </dd>
+                </div>
+              </dl>
               <p className="invitation-signature">
-                期待與您，一起綻放
-                <span>智晟團隊 敬邀</span>
+                <span>敬邀蒞臨</span>
               </p>
               <button
                 className="primary-button invitation-button"

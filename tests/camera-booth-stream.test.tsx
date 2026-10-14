@@ -96,7 +96,12 @@ describe("CameraBooth stream attachment", () => {
   it("opens the LINE ID and image upload form from the invitation", () => {
     const { container } = render(<CameraBooth />);
 
-    expect(container.textContent).toContain("一封綻放的邀請");
+    // The invitation is shown first: its title is artwork, so assert the
+    // accessible name rather than the visible text.
+    expect(
+      container.querySelector('#invitation-title img[alt="成果展"]'),
+    ).toBeTruthy();
+    expect(container.textContent).toContain("敬邀蒞臨");
     expect(container.textContent).not.toContain("開啟相機");
 
     enterBooth(container);
