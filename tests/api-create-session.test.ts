@@ -1,7 +1,19 @@
+import { readdir } from "node:fs/promises";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { POST } from "@/app/api/sessions/route";
+import {
+  IDENTITY_TOKEN_TTL_MS,
+  issueIdentityToken,
+} from "@/lib/identity-token";
 import { getSession } from "@/lib/sessions";
 import { imageFile, jpegBytes } from "./helpers";
+
+const MOBILE = "0912345678";
+
+/** A number only reaches this route as a token from /api/identity/verify. */
+function identityTokenFor(value = MOBILE) {
+  return issueIdentityToken({ kind: "mobile", value }).token;
+}
 
 const { afterMock, generateImageMock } = vi.hoisted(() => ({
   afterMock: vi.fn(),
@@ -18,18 +30,22 @@ async function flushAfterCallbacks() {
   }
 }
 
-function createRequest(
+function createRequest({
   file = imageFile(),
-  imageOptions?: string,
-  lineId?: string,
-) {
+  imageOptions,
+  identityToken = identityTokenFor(),
+}: {
+  file?: File;
+  imageOptions?: string;
+  identityToken?: string;
+} = {}) {
   const body = new FormData();
   body.set("image", file);
   if (imageOptions !== undefined) {
     body.set("imageOptions", imageOptions);
   }
-  if (lineId !== undefined) {
-    body.set("lineId", lineId);
+  if (identityToken !== undefined) {
+    body.set("identityToken", identityToken);
   }
   return new Request("http://booth.local/api/sessions", {
     method: "POST",
@@ -37,7 +53,13 @@ function createRequest(
   });
 }
 
+/** The only durable evidence that a rejected request created nothing. */
+async function storedSessionCount() {
+  return (await readdir(process.env.BLOOM_DATA_DIR!)).length;
+}
+
 beforeEach(() => {
+  process.env.IDENTITY_KEY_SECRET = "test-identity-secret";
   afterMock.mockReset();
   generateImageMock.mockReset();
   generateImageMock.mockResolvedValue(undefined);
@@ -59,33 +81,84 @@ describe("POST /api/sessions", () => {
     });
   });
 
-  it("stores a validated LINE ID with an uploaded portrait", async () => {
-    const response = await POST(
-      createRequest(imageFile(), undefined, "112-張小明-南投縣"),
-    );
+  it("stores the verified mobile number with the portrait", async () => {
+    const response = await POST(createRequest());
     const payload = await response.json();
 
     expect(response.status).toBe(201);
-    expect(payload.identity).toMatchObject({
-      kind: "lineId",
-      value: "112-張小明-南投縣",
-    });
     await expect(getSession(payload.id)).resolves.toMatchObject({
-      identity: {
-        kind: "lineId",
-        value: "112-張小明-南投縣",
-      },
+      identity: { kind: "mobile", value: MOBILE },
     });
   });
 
-  it("rejects an invalid LINE ID before creating the portrait", async () => {
-    const response = await POST(
-      createRequest(imageFile(), undefined, "張小明"),
-    );
+  // The session id is printed as a QR code and GET /api/sessions/[id] is
+  // unauthenticated, so the number must never travel in this shape.
+  it("never returns the guest's number in the session payload", async () => {
+    const payload = await (await POST(createRequest())).json();
+
+    expect(payload.identityClaimed).toBe(true);
+    expect(payload.identity).toBeUndefined();
+    expect(JSON.stringify(payload)).not.toContain(MOBILE);
+  });
+
+  it("treats an absent token as no number rather than an error", async () => {
+    const response = await POST(createRequest({ identityToken: "" }));
+    const payload = await response.json();
+
+    expect(response.status).toBe(201);
+    expect(payload.identityClaimed).toBe(false);
+  });
+
+  // The whole point of the token: a number cannot be self-asserted here.
+  it("refuses a forged token before creating the portrait", async () => {
+    const before = await storedSessionCount();
+    const forged = `v1.${Buffer.from(
+      JSON.stringify({
+        kind: "mobile",
+        value: MOBILE,
+        expiresAt: Date.now() + 60_000,
+      }),
+      "utf8",
+    ).toString("base64url")}.not-a-real-signature`;
+
+    const response = await POST(createRequest({ identityToken: forged }));
 
     expect(response.status).toBe(400);
-    expect(await response.json()).toMatchObject({ error: expect.any(String) });
+    expect(await response.json()).toMatchObject({
+      code: "IDENTITY_TOKEN_INVALID",
+    });
+    // Asserts the ordering the test name claims: nothing was written to disk.
+    expect(await storedSessionCount()).toBe(before);
     expect(afterMock).not.toHaveBeenCalled();
+  });
+
+  it("refuses a token signed with a different secret", async () => {
+    const token = identityTokenFor();
+    process.env.IDENTITY_KEY_SECRET = "a-different-secret";
+
+    const response = await POST(createRequest({ identityToken: token }));
+
+    expect(response.status).toBe(400);
+    expect(await response.json()).toMatchObject({
+      code: "IDENTITY_TOKEN_INVALID",
+    });
+  });
+
+  it("refuses an expired token", async () => {
+    vi.useFakeTimers();
+    try {
+      const token = identityTokenFor();
+      vi.advanceTimersByTime(IDENTITY_TOKEN_TTL_MS + 1000);
+
+      const response = await POST(createRequest({ identityToken: token }));
+
+      expect(response.status).toBe(400);
+      expect(await response.json()).toMatchObject({
+        code: "IDENTITY_TOKEN_INVALID",
+      });
+    } finally {
+      vi.useRealTimers();
+    }
   });
 
   it("builds the share link from APP_BASE_URL when configured", async () => {
@@ -122,14 +195,16 @@ describe("POST /api/sessions", () => {
     );
 
     expect(response.status).toBe(400);
+    expect(await response.json()).toMatchObject({ code: "IMAGE_REQUIRED" });
     expect(afterMock).not.toHaveBeenCalled();
   });
 
   it("surfaces an upload that is too large", async () => {
     const response = await POST(
-      createRequest(imageFile(jpegBytes(13 * 1024 * 1024))),
+      createRequest({ file: imageFile(jpegBytes(13 * 1024 * 1024)) }),
     );
     expect(response.status).toBe(413);
+    expect(await response.json()).toMatchObject({ code: "IMAGE_TOO_LARGE" });
     expect(afterMock).not.toHaveBeenCalled();
   });
 });
@@ -137,7 +212,7 @@ describe("POST /api/sessions", () => {
 describe("POST /api/sessions — image tuning disabled (production)", () => {
   it("ignores booth-supplied options and renders with the defaults", async () => {
     const payload = await (
-      await POST(createRequest(imageFile(), '{"model":"gpt-image-1"}'))
+      await POST(createRequest({ imageOptions: '{"model":"gpt-image-1"}' }))
     ).json();
 
     expect(payload.generationOptions).toBeNull();
@@ -154,10 +229,10 @@ describe("POST /api/sessions — image tuning enabled (dev/preview)", () => {
   it("stores the chosen options and renders with them", async () => {
     const payload = await (
       await POST(
-        createRequest(
-          imageFile(),
-          '{"model":"gpt-image-1","quality":"low","fakeGenerate":true}',
-        ),
+        createRequest({
+          imageOptions:
+            '{"model":"gpt-image-1","quality":"low","fakeGenerate":true}',
+        }),
       )
     ).json();
 
@@ -184,11 +259,13 @@ describe("POST /api/sessions — image tuning enabled (dev/preview)", () => {
 
   it("rejects invalid options instead of silently falling back", async () => {
     const response = await POST(
-      createRequest(imageFile(), '{"model":"dall-e-9"}'),
+      createRequest({ imageOptions: '{"model":"dall-e-9"}' }),
     );
 
     expect(response.status).toBe(400);
-    expect(await response.json()).toMatchObject({ error: expect.any(String) });
+    expect(await response.json()).toMatchObject({
+      code: "IMAGE_OPTIONS_INVALID",
+    });
     expect(afterMock).not.toHaveBeenCalled();
   });
 });

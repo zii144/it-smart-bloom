@@ -1,8 +1,5 @@
-import {
-  readInputImage,
-  readResultImage,
-  SessionError,
-} from "@/lib/sessions";
+import { errorJson, errorResponse } from "@/lib/api-errors";
+import { readInputImage, readResultImage } from "@/lib/sessions";
 
 export const runtime = "nodejs";
 
@@ -15,9 +12,10 @@ export async function GET(
     const kind = new URL(request.url).searchParams.get("kind");
 
     if (kind !== "input" && kind !== "result") {
-      return Response.json(
-        { error: "圖片類型必須是 input 或 result。" },
-        { status: 400 },
+      return errorJson(
+        "IMAGE_KIND_INVALID",
+        "圖片類型必須是 input 或 result。",
+        400,
       );
     }
 
@@ -37,11 +35,8 @@ export async function GET(
       },
     });
   } catch (error) {
-    if (error instanceof SessionError) {
-      return Response.json({ error: error.message }, { status: error.status });
-    }
-
-    console.error("Failed to serve image:", error);
-    return Response.json({ error: "無法載入圖片。" }, { status: 500 });
+    return errorResponse(error, "Failed to serve image", {
+      message: "無法載入圖片。",
+    });
   }
 }

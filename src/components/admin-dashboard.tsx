@@ -84,12 +84,11 @@ function localizeStatus(status: string) {
 }
 
 function localizeIdentity(identity: string | null) {
-  if (!identity) return "尚未認領";
+  if (!identity) return "尚未留下手機";
   if (identity.startsWith("mobile:")) {
+    // Already masked server-side; the dashboard is for recognising a guest,
+    // not for reading their number off a shared screen.
     return `手機：${identity.slice("mobile:".length)}`;
-  }
-  if (identity.startsWith("lineId:")) {
-    return `LINE ID：${identity.slice("lineId:".length)}`;
   }
   return identity;
 }

@@ -9,7 +9,11 @@ import {
   writeFile,
 } from "node:fs/promises";
 import path from "node:path";
-import type { GuestIdentity } from "@/lib/guest-identity";
+import { AppError, type ErrorCode } from "@/lib/api-errors";
+import type {
+  GuestIdentity,
+  GuestIdentityKind,
+} from "@/lib/guest-identity";
 import type { ImageGenerationOptions } from "@/lib/image-options";
 
 export const SESSION_TTL_MS = 15 * 60 * 1000;
@@ -39,7 +43,7 @@ export type ImageSession = {
   generationStartedAt?: string;
   generationOptions?: ImageGenerationOptions;
   identity?: {
-    kind: "lineId" | "mobile";
+    kind: GuestIdentityKind;
     value: string;
     claimedAt: string;
   };
@@ -61,7 +65,7 @@ function sessionsRoot() {
 
 function assertSessionId(id: string) {
   if (!SESSION_ID_PATTERN.test(id)) {
-    throw new SessionError("找不到這個創作空間。", 404);
+    throw new SessionError("找不到這個創作空間。", 404, "SESSION_NOT_FOUND");
   }
 }
 
@@ -115,7 +119,7 @@ function sessionFromArchive(record: {
   resultMime?: string | null;
   source?: SessionSource | null;
   generationOptions?: ImageSession["generationOptions"] | null;
-  identityKind?: "lineId" | "mobile" | null;
+  identityKind?: GuestIdentityKind | null;
   identityValue?: string | null;
   claimedAt?: string | null;
 }): ImageSession {
@@ -192,54 +196,56 @@ function hasExpectedSignature(bytes: Buffer, mime: string) {
   return false;
 }
 
-export class SessionError extends Error {
-  constructor(
-    message: string,
-    public readonly status: number,
-  ) {
-    super(message);
+export class SessionError extends AppError {
+  constructor(message: string, status: number, code: ErrorCode) {
+    super(message, status, code);
     this.name = "SessionError";
   }
 }
 
 export async function createSession(
   file: File,
-  generationOptions?: ImageGenerationOptions,
-  source?: SessionSource,
-  identity?: GuestIdentity,
+  {
+    generationOptions,
+    source,
+    identity,
+  }: {
+    generationOptions?: ImageGenerationOptions;
+    source?: SessionSource;
+    identity?: GuestIdentity | null;
+  } = {},
 ) {
   if (!SUPPORTED_IMAGE_TYPES.has(file.type)) {
-    throw new SessionError("請使用 JPEG、PNG 或 WebP 格式的照片。", 415);
+    throw new SessionError(
+      "請使用 JPEG、PNG 或 WebP 格式的照片。",
+      415,
+      "IMAGE_TYPE_UNSUPPORTED",
+    );
   }
 
   if (file.size === 0 || file.size > MAX_UPLOAD_BYTES) {
-    throw new SessionError("照片大小必須小於 12 MB。", 413);
+    throw new SessionError("照片大小必須小於 12 MB。", 413, "IMAGE_TOO_LARGE");
   }
 
   const bytes = Buffer.from(await file.arrayBuffer());
   if (!hasExpectedSignature(bytes, file.type)) {
-    throw new SessionError("上傳的檔案不是有效的圖片。", 400);
+    throw new SessionError("上傳的檔案不是有效的圖片。", 400, "IMAGE_INVALID");
   }
 
   const id = randomBytes(24).toString("base64url");
   const createdAt = new Date();
+  const createdAtIso = createdAt.toISOString();
   const session: ImageSession = {
     id,
-    createdAt: createdAt.toISOString(),
+    createdAt: createdAtIso,
     expiresAt: new Date(createdAt.getTime() + SESSION_TTL_MS).toISOString(),
     status: "ready",
     inputMime: file.type,
     ...(source ? { source } : {}),
     ...(generationOptions ? { generationOptions } : {}),
-    ...(identity
-      ? {
-          identity: {
-            kind: identity.kind,
-            value: identity.value,
-            claimedAt: createdAt.toISOString(),
-          },
-        }
-      : {}),
+    // The guest types their number before the shutter fires, so for a booth
+    // capture "recorded" and "confirmed" are the same instant.
+    ...(identity ? { identity: { ...identity, claimedAt: createdAtIso } } : {}),
   };
 
   await mkdir(sessionDirectory(id), { recursive: true });
@@ -269,7 +275,7 @@ export async function getSession(id: string) {
       return archived;
     }
 
-    throw new SessionError("找不到這個創作空間。", 404);
+    throw new SessionError("找不到這個創作空間。", 404, "SESSION_NOT_FOUND");
   }
 }
 
@@ -300,11 +306,17 @@ export async function readInputImage(id: string) {
     const record = await readArchiveRecord(id);
     const objectPath = record?.storage.inputPath;
     if (!objectPath) {
-      throw new SessionError("找不到這個創作空間的照片。", 404);
+      throw new SessionError("找不到這個創作空間的照片。",
+        404,
+        "SOURCE_PHOTO_NOT_FOUND",
+      );
     }
     const archived = await readArchiveImage(objectPath);
     if (!archived) {
-      throw new SessionError("找不到這個創作空間的照片。", 404);
+      throw new SessionError("找不到這個創作空間的照片。",
+        404,
+        "SOURCE_PHOTO_NOT_FOUND",
+      );
     }
 
     try {
@@ -340,7 +352,7 @@ export async function writeResultImage(
 export async function readResultImage(id: string) {
   const session = await getSession(id);
   if (session.status !== "complete" || !session.resultMime) {
-    throw new SessionError("專屬人像仍在創作中。", 409);
+    throw new SessionError("專屬人像仍在創作中。", 409, "PORTRAIT_NOT_READY");
   }
 
   try {
@@ -357,11 +369,11 @@ export async function readResultImage(id: string) {
     const record = await readArchiveRecord(id);
     const objectPath = record?.storage.resultPath;
     if (!objectPath) {
-      throw new SessionError("目前無法取得專屬人像。", 404);
+      throw new SessionError("目前無法取得專屬人像。", 404, "PORTRAIT_NOT_FOUND");
     }
     const archived = await readArchiveImage(objectPath);
     if (!archived) {
-      throw new SessionError("目前無法取得專屬人像。", 404);
+      throw new SessionError("目前無法取得專屬人像。", 404, "PORTRAIT_NOT_FOUND");
     }
 
     try {
@@ -476,12 +488,9 @@ export function publicSession(session: ImageSession) {
         ? "無法完成這次創作，請回到拍照裝置後再試一次。"
         : null,
     generationOptions: session.generationOptions ?? null,
-    identity: session.identity
-      ? {
-          kind: session.identity.kind,
-          value: session.identity.value,
-          claimedAt: session.identity.claimedAt,
-        }
-      : null,
+    // The identity itself is PII and this payload is served unauthenticated
+    // to anyone holding the session id — which the booth prints as a QR code.
+    // Callers only ever need to know whether one is on file.
+    identityClaimed: Boolean(session.identity),
   };
 }

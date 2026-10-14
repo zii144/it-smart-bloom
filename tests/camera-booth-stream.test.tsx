@@ -45,6 +45,79 @@ function stubCamera(
 
 let play: ReturnType<typeof vi.fn>;
 
+const MOBILE = "0912345678";
+const REAL_NAME = "王小明";
+const OPTIONS = [REAL_NAME, "林大華", "陳怡君", "張家豪", "李淑芬"];
+
+/** Stands in for /api/identity/challenge and /api/identity/verify. */
+function stubIdentityApi({ correct = REAL_NAME } = {}) {
+  const fetchMock = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+    const url = String(input);
+    const body = init?.body ? JSON.parse(String(init.body)) : {};
+
+    if (url.endsWith("/api/identity/challenge")) {
+      return new Response(
+        JSON.stringify({
+          challengeId: "sealed",
+          options: OPTIONS,
+          expiresAt: Date.now() + 300_000,
+          attemptsRemaining: 5,
+        }),
+        { status: 200, headers: { "Content-Type": "application/json" } },
+      );
+    }
+
+    if (url.endsWith("/api/identity/verify")) {
+      return body.answer === correct
+        ? new Response(
+            JSON.stringify({
+              identityToken: "v1.token.signature",
+              expiresAt: Date.now() + 900_000,
+            }),
+            { status: 200, headers: { "Content-Type": "application/json" } },
+          )
+        : new Response(
+            JSON.stringify({
+              error: "名字不正確，還可以再試 4 次。",
+              code: "IDENTITY_ANSWER_WRONG",
+              attemptsRemaining: 4,
+            }),
+            { status: 400, headers: { "Content-Type": "application/json" } },
+          );
+    }
+
+    throw new Error(`unexpected fetch: ${url}`);
+  });
+
+  vi.stubGlobal("fetch", fetchMock);
+  return fetchMock;
+}
+
+/** Types the number and answers the name challenge, the way a guest does. */
+async function verifyMobile(container: HTMLElement, answer = REAL_NAME) {
+  const mobile = container.querySelector<HTMLInputElement>("#guest-mobile");
+  if (!mobile) throw new Error("mobile input not rendered");
+  fireEvent.change(mobile, { target: { value: MOBILE } });
+
+  const startButton = [...container.querySelectorAll("button")].find((button) =>
+    button.textContent?.includes("驗證手機號碼"),
+  );
+  if (!startButton) throw new Error("verify button not rendered");
+  fireEvent.click(startButton);
+
+  await waitFor(() => {
+    if (!container.textContent?.includes("請選出這支號碼登記的姓名")) {
+      throw new Error("challenge not shown");
+    }
+  });
+
+  const option = [...container.querySelectorAll("button")].find(
+    (button) => button.textContent?.trim() === answer,
+  );
+  if (!option) throw new Error(`option ${answer} not rendered`);
+  fireEvent.click(option);
+}
+
 function enterBooth(container: HTMLElement) {
   const invitationButton = [...container.querySelectorAll("button")].find(
     (button) => button.textContent?.includes("欣然赴約"),
@@ -53,11 +126,14 @@ function enterBooth(container: HTMLElement) {
   fireEvent.click(invitationButton);
 }
 
-function enterCameraBooth(container: HTMLElement) {
+async function enterCameraBooth(container: HTMLElement) {
   enterBooth(container);
-  const lineId = container.querySelector<HTMLInputElement>("#guest-line-id");
-  if (!lineId) throw new Error("LINE ID input not rendered");
-  fireEvent.change(lineId, { target: { value: "112-張小明-南投縣" } });
+  await verifyMobile(container);
+  await waitFor(() => {
+    if (!container.textContent?.includes("已完成驗證")) {
+      throw new Error("verification not completed");
+    }
+  });
 
   const cameraButton = [...container.querySelectorAll("button")].find(
     (button) => button.textContent?.includes("改用現場相機"),
@@ -68,6 +144,7 @@ function enterCameraBooth(container: HTMLElement) {
 
 beforeEach(() => {
   window.localStorage.clear();
+  stubIdentityApi();
   Object.defineProperty(window, "isSecureContext", {
     configurable: true,
     value: true,
@@ -93,7 +170,7 @@ afterEach(() => {
 });
 
 describe("CameraBooth stream attachment", () => {
-  it("opens the LINE ID and image upload form from the invitation", () => {
+  it("opens the mobile and image upload form from the invitation", () => {
     const { container } = render(<CameraBooth />);
 
     // The invitation is shown first: its title is artwork, so assert the
@@ -106,18 +183,21 @@ describe("CameraBooth stream attachment", () => {
 
     enterBooth(container);
 
-    expect(container.textContent).toContain("路老師通用 LINE ID");
+    expect(container.textContent).toContain("手機號碼");
     expect(container.querySelector('input[type="file"]')).toBeTruthy();
     expect(container.textContent).toContain("改用現場相機");
   });
 
-  it("previews a valid uploaded image after collecting the LINE ID", () => {
+  it("previews a valid uploaded image after verifying the mobile", async () => {
     const { container } = render(<CameraBooth />);
     enterBooth(container);
-
-    fireEvent.change(container.querySelector("#guest-line-id")!, {
-      target: { value: "112-張小明-南投縣" },
+    await verifyMobile(container);
+    await waitFor(() => {
+      if (!container.textContent?.includes("已完成驗證")) {
+        throw new Error("verification not completed");
+      }
     });
+
     fireEvent.change(container.querySelector('input[type="file"]')!, {
       target: {
         files: [
@@ -140,7 +220,7 @@ describe("CameraBooth stream attachment", () => {
     stubCamera(stream);
 
     const { container } = render(<CameraBooth />);
-    enterCameraBooth(container);
+    await enterCameraBooth(container);
     fireEvent.click(container.querySelector("button.primary-button")!);
 
     const video = await waitFor(() => {
@@ -157,7 +237,7 @@ describe("CameraBooth stream attachment", () => {
     stubCamera(fakeStream());
 
     const { container } = render(<CameraBooth />);
-    enterCameraBooth(container);
+    await enterCameraBooth(container);
     fireEvent.click(container.querySelector("button.primary-button")!);
 
     const video = await waitFor(() => {
@@ -189,7 +269,7 @@ describe("CameraBooth camera picker", () => {
     stubCamera(fakeStream());
 
     const { container } = render(<CameraBooth />);
-    enterCameraBooth(container);
+    await enterCameraBooth(container);
     fireEvent.click(container.querySelector("button.primary-button")!);
 
     await waitFor(() => expect(container.querySelector("video")).toBeTruthy());
@@ -209,7 +289,7 @@ describe("CameraBooth camera picker", () => {
     );
 
     const { container } = render(<CameraBooth />);
-    enterCameraBooth(container);
+    await enterCameraBooth(container);
     fireEvent.click(container.querySelector("button.primary-button")!);
 
     const select = await waitFor(() => {
@@ -235,5 +315,132 @@ describe("CameraBooth camera picker", () => {
       }),
     );
     expect(window.localStorage.getItem("bloom.camera.deviceId")).toBe("phone");
+  });
+});
+
+describe("CameraBooth identity challenge", () => {
+  function verified(container: HTMLElement) {
+    return waitFor(() => {
+      if (!container.textContent?.includes("已完成驗證")) {
+        throw new Error("verification not completed");
+      }
+    });
+  }
+
+  // A photo must never be taken against a number nobody has proven.
+  it("keeps the photo picker and both submits locked until verified", async () => {
+    const { container } = render(<CameraBooth />);
+    enterBooth(container);
+
+    const file = container.querySelector<HTMLInputElement>('input[type="file"]')!;
+    const submit = container.querySelector<HTMLButtonElement>(
+      "button.guest-entry-submit",
+    )!;
+    const camera = container.querySelector<HTMLButtonElement>(
+      "button.guest-camera-option",
+    )!;
+
+    expect(file.disabled).toBe(true);
+    expect(submit.disabled).toBe(true);
+    expect(camera.disabled).toBe(true);
+
+    await verifyMobile(container);
+    await verified(container);
+
+    expect(file.disabled).toBe(false);
+    expect(submit.disabled).toBe(false);
+    expect(camera.disabled).toBe(false);
+  });
+
+  it("shows the remaining attempts and a fresh line-up after a wrong name", async () => {
+    const { container } = render(<CameraBooth />);
+    enterBooth(container);
+
+    await verifyMobile(container, "林大華");
+
+    await waitFor(() => {
+      if (!container.textContent?.includes("還可以再試 4 次")) {
+        throw new Error("attempt count not shown");
+      }
+    });
+    expect(container.textContent).not.toContain("已完成驗證");
+    // Still on the challenge, with a newly issued option set.
+    expect(container.textContent).toContain("請選出這支號碼登記的姓名");
+  });
+
+  it("re-verifies the same number from storage without another challenge", async () => {
+    const first = render(<CameraBooth />);
+    enterBooth(first.container);
+    await verifyMobile(first.container);
+    await verified(first.container);
+
+    cleanup();
+    const fetchMock = stubIdentityApi();
+    const second = render(<CameraBooth />);
+    enterBooth(second.container);
+
+    fireEvent.change(
+      second.container.querySelector<HTMLInputElement>("#guest-mobile")!,
+      { target: { value: MOBILE } },
+    );
+    fireEvent.click(
+      [...second.container.querySelectorAll("button")].find((button) =>
+        button.textContent?.includes("驗證手機號碼"),
+      )!,
+    );
+
+    await verified(second.container);
+    // Restored from the signed token, so road-teacher was never asked again.
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+
+  // The booth is shared: the next guest's number must not match the last one.
+  it("challenges a different number even with a stored verification", async () => {
+    const first = render(<CameraBooth />);
+    enterBooth(first.container);
+    await verifyMobile(first.container);
+    await verified(first.container);
+
+    cleanup();
+    const fetchMock = stubIdentityApi();
+    const second = render(<CameraBooth />);
+    enterBooth(second.container);
+
+    fireEvent.change(
+      second.container.querySelector<HTMLInputElement>("#guest-mobile")!,
+      { target: { value: "0987654321" } },
+    );
+    fireEvent.click(
+      [...second.container.querySelectorAll("button")].find((button) =>
+        button.textContent?.includes("驗證手機號碼"),
+      )!,
+    );
+
+    await waitFor(() => {
+      if (!second.container.textContent?.includes("請選出這支號碼登記的姓名")) {
+        throw new Error("challenge not shown for the new number");
+      }
+    });
+    expect(fetchMock).toHaveBeenCalled();
+    expect(second.container.textContent).not.toContain("已完成驗證");
+  });
+
+  it("drops the verification when the guest changes the number", async () => {
+    const { container } = render(<CameraBooth />);
+    enterBooth(container);
+    await verifyMobile(container);
+    await verified(container);
+
+    fireEvent.click(
+      [...container.querySelectorAll("button")].find((button) =>
+        button.textContent?.includes("換一支號碼"),
+      )!,
+    );
+
+    expect(container.textContent).not.toContain("已完成驗證");
+    expect(
+      container.querySelector<HTMLInputElement>('input[type="file"]')!.disabled,
+    ).toBe(true);
+    expect(window.localStorage.getItem("bloom.identity.v1")).toBeNull();
   });
 });

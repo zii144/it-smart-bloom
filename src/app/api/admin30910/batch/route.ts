@@ -75,7 +75,10 @@ export async function POST(request: Request) {
       return Response.json({ error: message }, { status: 400 });
     }
 
-    const session = await createSession(image, options, "admin-batch");
+    const session = await createSession(image, {
+      generationOptions: options,
+      source: "admin-batch",
+    });
 
     // Archive before rendering so the result has somewhere durable to land even
     // if the next request hits a different Vercel isolate.

@@ -52,7 +52,9 @@ describe("createSession", () => {
       outputCompression: 80,
       fakeGenerate: true,
     };
-    const session = await createSession(imageFile(), options);
+    const session = await createSession(imageFile(), {
+      generationOptions: options,
+    });
     expect((await readMetadata(session.id)).generationOptions).toEqual(options);
   });
 
@@ -283,7 +285,7 @@ describe("publicSession", () => {
       "expiresAt",
       "generationOptions",
       "id",
-      "identity",
+      "identityClaimed",
       "inputUrl",
       "resultUrl",
       "startedAt",
@@ -339,8 +341,6 @@ describe("serverless session storage", () => {
         storage: {
           inputPath: `sessions/${created.id}/input`,
           resultPath: null,
-          identityInputPath: null,
-          identityResultPath: null,
         },
       })),
       readArchiveImage: vi.fn(async () => ({

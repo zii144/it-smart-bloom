@@ -1,3 +1,5 @@
+import { FieldValue } from "firebase-admin/firestore";
+import { ConfigError } from "@/lib/api-errors";
 import type { GuestIdentity } from "@/lib/guest-identity";
 import { identityStorageKey } from "@/lib/guest-identity";
 import { getBucket, getDb, isFirebaseConfigured } from "@/lib/firebase-admin";
@@ -25,9 +27,17 @@ export type ArchiveRecord = {
   storage: {
     inputPath: string | null;
     resultPath: string | null;
-    identityInputPath: string | null;
-    identityResultPath: string | null;
   };
+};
+
+/** What `archiveSessionCreated` actually managed to persist. */
+export type ArchiveOutcome = {
+  /** The session document reached Firestore. */
+  archived: boolean;
+  /** The source photo reached Cloud Storage. */
+  inputStored: boolean;
+  /** The guest's identity was indexed; false when there was none to index. */
+  identityIndexed: boolean;
 };
 
 function sessionDoc(sessionId: string) {
@@ -64,30 +74,80 @@ async function uploadBytes(
   }
 }
 
-export async function archiveSessionCreated(session: ImageSession, input: {
-  bytes: Buffer;
-  mime: string;
-}) {
-  if (!isFirebaseConfigured()) return;
+/**
+ * One document per identity, listing the sessions that identity owns.
+ *
+ * The portrait bytes are deliberately NOT duplicated under `identities/` — a
+ * session id already resolves to `sessions/{id}/input` — so there is exactly
+ * one copy of each guest photo to secure, to serve, and to purge.
+ *
+ * `arrayUnion` appends server-side. A read-then-write would silently drop one
+ * of two captures racing for the same number, which is the ordinary case when a
+ * guest retakes their photo.
+ */
+async function indexIdentity(
+  identityKey: string,
+  identity: GuestIdentity,
+  sessionId: string,
+  at: string,
+) {
+  const ref = identityDoc(identityKey);
+  if (!ref) {
+    throw new ConfigError(
+      "尚未設定 Firebase，無法保存身分資料。",
+      "ARCHIVE_UNAVAILABLE",
+    );
+  }
+
+  await ref.set(
+    {
+      kind: identity.kind,
+      value: identity.value,
+      updatedAt: at,
+      sessionIds: FieldValue.arrayUnion(sessionId),
+    },
+    { merge: true },
+  );
+}
+
+export async function archiveSessionCreated(
+  session: ImageSession,
+  input: {
+    bytes: Buffer;
+    mime: string;
+  },
+): Promise<ArchiveOutcome> {
+  if (!isFirebaseConfigured()) {
+    return { archived: false, inputStored: false, identityIndexed: false };
+  }
 
   const inputPath = await uploadBytes(
     `sessions/${session.id}/input`,
     input.bytes,
     input.mime,
   );
-  const identity = session.identity;
-  const identityKey = identity
-    ? identityStorageKey({ kind: identity.kind, value: identity.value })
-    : null;
-  const identityInputPath = identityKey
-    ? await uploadBytes(
-        `identities/${identityKey}/${session.id}/input`,
-        input.bytes,
-        input.mime,
-      )
-    : null;
 
   const now = new Date().toISOString();
+  const identity = session.identity;
+
+  // Indexed before the session record is written, so the record never names an
+  // `identityKey` that resolves to nothing. A failure here keeps the identity on
+  // the session — the guest still needs it — but leaves the key null, and is
+  // reported back so the caller can say what actually happened.
+  let identityKey: string | null = null;
+  if (identity) {
+    try {
+      const key = identityStorageKey(identity);
+      await indexIdentity(key, identity, session.id, now);
+      identityKey = key;
+    } catch (error) {
+      console.error(
+        `Failed to index identity for session ${session.id}:`,
+        error,
+      );
+    }
+  }
+
   const record: ArchiveRecord = {
     sessionId: session.id,
     status: session.status,
@@ -110,28 +170,16 @@ export async function archiveSessionCreated(session: ImageSession, input: {
     storage: {
       inputPath,
       resultPath: null,
-      identityInputPath,
-      identityResultPath: null,
     },
   };
 
   await sessionDoc(session.id)?.set(record, { merge: true });
 
-  if (identity && identityKey) {
-    const ref = identityDoc(identityKey);
-    const previous = await ref?.get();
-    const previousIds =
-      (previous?.data()?.sessionIds as string[] | undefined) ?? [];
-    await ref?.set(
-      {
-        kind: identity.kind,
-        value: identity.value,
-        updatedAt: now,
-        sessionIds: Array.from(new Set([...previousIds, session.id])),
-      },
-      { merge: true },
-    );
-  }
+  return {
+    archived: true,
+    inputStored: Boolean(inputPath),
+    identityIndexed: Boolean(identityKey),
+  };
 }
 
 export async function archiveSessionStatus(
@@ -143,127 +191,36 @@ export async function archiveSessionStatus(
   const doc = sessionDoc(session.id);
   if (!doc) return;
 
-  const existing = (await doc.get()).data() as ArchiveRecord | undefined;
-  let resultPath = existing?.storage.resultPath ?? null;
-  let identityResultPath = existing?.storage.identityResultPath ?? null;
+  const update: Record<string, unknown> = {
+    status: session.status,
+    expiresAt: session.expiresAt,
+    updatedAt: new Date().toISOString(),
+    generationStartedAt: session.generationStartedAt ?? null,
+    error: session.error ?? null,
+    resultMime: session.resultMime ?? result?.mime ?? null,
+    generationOptions: session.generationOptions ?? null,
+  };
 
   if (result) {
-    resultPath = await uploadBytes(
+    const resultPath = await uploadBytes(
       `sessions/${session.id}/result`,
       result.bytes,
       result.mime,
     );
 
-    if (existing?.identityKey && resultPath) {
-      identityResultPath = await uploadBytes(
-        `identities/${existing.identityKey}/${session.id}/result`,
-        result.bytes,
-        result.mime,
+    // Firestore merges nested maps key by key, so writing only `resultPath`
+    // leaves `storage.inputPath` untouched — no read-back needed. A failed
+    // upload writes nothing rather than clobbering a path that already worked.
+    if (resultPath) {
+      update.storage = { resultPath };
+    } else {
+      console.error(
+        `Failed to archive the result image for session ${session.id}.`,
       );
     }
   }
 
-  await doc.set(
-    {
-      status: session.status,
-      expiresAt: session.expiresAt,
-      updatedAt: new Date().toISOString(),
-      generationStartedAt: session.generationStartedAt ?? null,
-      error: session.error ?? null,
-      resultMime: session.resultMime ?? result?.mime ?? null,
-      generationOptions: session.generationOptions ?? null,
-      storage: {
-        inputPath: existing?.storage.inputPath ?? null,
-        resultPath,
-        identityInputPath: existing?.storage.identityInputPath ?? null,
-        identityResultPath,
-      },
-    },
-    { merge: true },
-  );
-}
-
-export async function claimSessionIdentity(
-  session: ImageSession,
-  identity: GuestIdentity,
-  images: {
-    input: { bytes: Buffer; mime: string };
-    result: { bytes: Buffer; mime: string } | null;
-  },
-) {
-  if (!isFirebaseConfigured()) {
-    throw new Error("尚未設定 Firebase，無法保存身分資料。");
-  }
-
-  const key = identityStorageKey(identity);
-  const claimedAt = new Date().toISOString();
-  const identityRef = identityDoc(key);
-  if (!identityRef) {
-    throw new Error("尚未設定 Firebase，無法保存身分資料。");
-  }
-
-  const identityInputPath = await uploadBytes(
-    `identities/${key}/${session.id}/input`,
-    images.input.bytes,
-    images.input.mime,
-  );
-
-  let identityResultPath: string | null = null;
-  if (images.result) {
-    identityResultPath = await uploadBytes(
-      `identities/${key}/${session.id}/result`,
-      images.result.bytes,
-      images.result.mime,
-    );
-  }
-
-  await sessionDoc(session.id)?.set(
-    {
-      identityKind: identity.kind,
-      identityValue: identity.value,
-      identityKey: key,
-      claimedAt,
-      updatedAt: claimedAt,
-      status: session.status,
-      error: session.error ?? null,
-      storage: {
-        identityInputPath,
-        identityResultPath,
-      },
-    },
-    { merge: true },
-  );
-
-  const previous = await identityRef.get();
-  const previousIds = (previous.data()?.sessionIds as string[] | undefined) ?? [];
-  await identityRef.set(
-    {
-      kind: identity.kind,
-      value: identity.value,
-      updatedAt: claimedAt,
-      sessionIds: Array.from(new Set([...previousIds, session.id])),
-    },
-    { merge: true },
-  );
-
-  return { identityKey: key, claimedAt };
-}
-
-export async function markAvatarRequest(
-  sessionId: string,
-  outcome: { ok: true } | { ok: false; error: string },
-) {
-  if (!isFirebaseConfigured()) return;
-
-  await sessionDoc(sessionId)?.set(
-    {
-      avatarRequestedAt: new Date().toISOString(),
-      avatarRequestStatus: outcome.ok ? "success" : "failed",
-      avatarRequestError: outcome.ok ? null : outcome.error,
-      updatedAt: new Date().toISOString(),
-    },
-    { merge: true },
-  );
+  await doc.set(update, { merge: true });
 }
 
 export async function readArchiveRecord(sessionId: string) {

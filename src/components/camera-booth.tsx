@@ -15,7 +15,11 @@ import {
   requestUserCamera,
   writeCameraPreference,
 } from "@/lib/camera-access";
-import { isValidLineId, normalizeLineId } from "@/lib/guest-identity";
+import {
+  isValidMobile,
+  MAX_IDENTITY_INPUT_LENGTH,
+  normalizeMobile,
+} from "@/lib/guest-identity";
 import type { ImageGenerationOptions } from "@/lib/image-options";
 import { buildLineShareUrl } from "@/lib/line-share";
 
@@ -29,7 +33,69 @@ type SessionPayload = {
   sessionUrl: string;
   qrDataUrl: string;
   generationOptions?: ImageGenerationOptions | null;
+  /** False when the guest's number could not be recorded against the portrait. */
+  identityStored?: boolean;
 };
+
+/** Matches the server's IDENTITY_INVALID message so both read the same. */
+const MOBILE_FORMAT_ERROR = "請輸入台灣手機號碼，例如 0912345678。";
+
+const IDENTITY_STORAGE_KEY = "bloom.identity.v1";
+
+/** Server-signed proof that this booth verified this number. */
+type VerifiedIdentity = {
+  token: string;
+  mobile: string;
+  expiresAt: number;
+};
+
+type NameChallenge = {
+  challengeId: string;
+  options: string[];
+  attemptsRemaining: number | null;
+};
+
+/**
+ * localStorage holds the signed token, never a "verified" flag — the server
+ * re-checks the signature on every use, so a tampered entry is worth nothing.
+ * An expired entry is dropped on read, which matters on a shared booth device.
+ */
+function readStoredIdentity(): VerifiedIdentity | null {
+  try {
+    const raw = window.localStorage.getItem(IDENTITY_STORAGE_KEY);
+    if (!raw) return null;
+
+    const stored = JSON.parse(raw) as Partial<VerifiedIdentity>;
+    if (
+      typeof stored.token !== "string" ||
+      typeof stored.mobile !== "string" ||
+      typeof stored.expiresAt !== "number" ||
+      stored.expiresAt <= Date.now()
+    ) {
+      window.localStorage.removeItem(IDENTITY_STORAGE_KEY);
+      return null;
+    }
+
+    return stored as VerifiedIdentity;
+  } catch {
+    return null;
+  }
+}
+
+function writeStoredIdentity(identity: VerifiedIdentity | null) {
+  try {
+    if (!identity) {
+      window.localStorage.removeItem(IDENTITY_STORAGE_KEY);
+      return;
+    }
+    window.localStorage.setItem(
+      IDENTITY_STORAGE_KEY,
+      JSON.stringify(identity),
+    );
+  } catch {
+    // A booth with storage disabled still works; the token stays in memory.
+  }
+}
 
 type BoothStep =
   | "invitation"
@@ -151,7 +217,10 @@ export function CameraBooth({
   tuningEnabled?: boolean;
 }) {
   const [step, setStep] = useState<BoothStep>("invitation");
-  const [lineId, setLineId] = useState("");
+  const [mobile, setMobile] = useState("");
+  const [identity, setIdentity] = useState<VerifiedIdentity | null>(null);
+  const [challenge, setChallenge] = useState<NameChallenge | null>(null);
+  const [challengeBusy, setChallengeBusy] = useState(false);
   const [photo, setPhoto] = useState<Blob | null>(null);
   const [photoSource, setPhotoSource] = useState<PhotoSource | null>(null);
   const [previewUrl, setPreviewUrl] = useState<string | null>(null);
@@ -164,7 +233,7 @@ export function CameraBooth({
   const [cameras, setCameras] = useState<CameraOption[]>([]);
   const [currentCameraId, setCurrentCameraId] = useState<string | null>(null);
   const [streamEpoch, setStreamEpoch] = useState(0);
-  const lineIdInputRef = useRef<HTMLInputElement>(null);
+  const mobileInputRef = useRef<HTMLInputElement>(null);
   const uploadInputRef = useRef<HTMLInputElement>(null);
   const guestEntryHeadingRef = useRef<HTMLHeadingElement>(null);
   const introHeadingRef = useRef<HTMLHeadingElement>(null);
@@ -364,8 +433,8 @@ export function CameraBooth({
     try {
       const formData = new FormData();
       formData.set("image", photo, "portrait.jpg");
-      if (lineId.trim()) {
-        formData.set("lineId", normalizeLineId(lineId));
+      if (identity) {
+        formData.set("identityToken", identity.token);
       }
       const optionsToStore = options ?? tuningOptions;
       if (optionsToStore) {
@@ -384,6 +453,7 @@ export function CameraBooth({
       // Force the next guest through the options modal again so a one-off
       // "假生成" choice cannot silently stick for the rest of the booth day.
       setTuningOptions(null);
+      writeStoredIdentity(null);
       setSession(payload as SessionPayload);
     } catch (caught) {
       setError(
@@ -393,9 +463,119 @@ export function CameraBooth({
     }
   }
 
+  function clearIdentity() {
+    setIdentity(null);
+    setChallenge(null);
+    writeStoredIdentity(null);
+  }
+
+  async function startChallenge() {
+    const normalized = validateMobile();
+    if (!normalized) return;
+
+    // A verification survives an accidental refresh, but only for the number it
+    // was issued for. The booth is a shared device: the next guest types their
+    // own number, which never matches the previous guest's stored token.
+    const stored = readStoredIdentity();
+    if (stored && stored.mobile === normalized) {
+      setIdentity(stored);
+      setChallenge(null);
+      return;
+    }
+
+    setChallengeBusy(true);
+    setError(null);
+    try {
+      const response = await fetch("/api/identity/challenge", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ mobile: normalized }),
+      });
+      const payload = await response.json();
+
+      if (!response.ok) {
+        setChallenge(null);
+        setError(payload.error || "目前無法驗證手機號碼，請稍後再試。");
+        return;
+      }
+
+      setChallenge({
+        challengeId: payload.challengeId,
+        options: payload.options as string[],
+        attemptsRemaining: payload.attemptsRemaining ?? null,
+      });
+    } catch {
+      setError("目前無法連線，請稍後再試。");
+    } finally {
+      setChallengeBusy(false);
+    }
+  }
+
+  async function submitAnswer(answer: string) {
+    if (!challenge || challengeBusy) return;
+
+    setChallengeBusy(true);
+    setError(null);
+    try {
+      const response = await fetch("/api/identity/verify", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          mobile: normalizeMobile(mobile),
+          challengeId: challenge.challengeId,
+          answer,
+        }),
+      });
+      const payload = await response.json();
+
+      if (response.ok) {
+        const verified: VerifiedIdentity = {
+          token: payload.identityToken,
+          mobile: normalizeMobile(mobile),
+          expiresAt: payload.expiresAt,
+        };
+        setIdentity(verified);
+        setChallenge(null);
+        writeStoredIdentity(verified);
+        return;
+      }
+
+      setError(payload.error || "驗證失敗，請再試一次。");
+
+      if (response.status === 423) {
+        setChallenge(null);
+        return;
+      }
+
+      // A fresh line-up every time: re-using this one would let five guesses
+      // solve it by elimination.
+      const next = await fetch("/api/identity/challenge", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ mobile: normalizeMobile(mobile) }),
+      });
+      const nextPayload = await next.json();
+      setChallenge(
+        next.ok
+          ? {
+              challengeId: nextPayload.challengeId,
+              options: nextPayload.options as string[],
+              attemptsRemaining: payload.attemptsRemaining ?? null,
+            }
+          : null,
+      );
+    } catch {
+      setError("目前無法連線，請稍後再試。");
+    } finally {
+      setChallengeBusy(false);
+    }
+  }
+
   function startOver() {
     // Full navigation clears camera streams and session state so the next
-    // guest always starts from a fresh booth.
+    // guest always starts from a fresh booth — including any verification the
+    // previous guest left behind.
+    writeStoredIdentity(null);
     window.location.assign("/");
   }
 
@@ -407,15 +587,24 @@ export function CameraBooth({
     );
   }
 
-  function validateLineId() {
-    const normalized = normalizeLineId(lineId);
-    if (!isValidLineId(normalized)) {
-      setError("LINE ID 格式需為「數字-姓名-地區」，例如 112-張小明-南投縣。");
-      window.requestAnimationFrame(() => lineIdInputRef.current?.focus());
+  function validateMobile() {
+    const normalized = normalizeMobile(mobile);
+    if (!isValidMobile(normalized)) {
+      setError(MOBILE_FORMAT_ERROR);
+      window.requestAnimationFrame(() => mobileInputRef.current?.focus());
       return null;
     }
-    setLineId(normalized);
+    setMobile(normalized);
     return normalized;
+  }
+
+  /** A photo can only be taken once the number behind it has been proven. */
+  function requireVerifiedIdentity() {
+    if (identity && identity.mobile === normalizeMobile(mobile)) return true;
+
+    setError("請先完成手機號碼驗證。");
+    window.requestAnimationFrame(() => mobileInputRef.current?.focus());
+    return false;
   }
 
   function selectUploadedPhoto(file: File | undefined) {
@@ -440,7 +629,7 @@ export function CameraBooth({
   }
 
   function reviewUpload() {
-    if (!validateLineId()) return;
+    if (!requireVerifiedIdentity()) return;
     if (!photo || photoSource !== "upload") {
       setError("請選擇一張想要創作的照片。");
       uploadInputRef.current?.focus();
@@ -451,7 +640,7 @@ export function CameraBooth({
   }
 
   function continueWithCamera() {
-    if (!validateLineId()) return;
+    if (!requireVerifiedIdentity()) return;
     setError(null);
     setStep("intro");
     window.requestAnimationFrame(() =>
@@ -568,13 +757,13 @@ export function CameraBooth({
                 留下名字，選一張喜歡的自己。
               </h1>
               <p>
-                填寫路老師通用 LINE ID，再上傳一張清楚的正面照片，
+                填寫手機號碼，再上傳一張清楚的正面照片，
                 我們會把一路走來的光，畫成你的專屬水彩似顏繪。
               </p>
               <div className="guest-entry-note">
                 <span aria-hidden="true">01</span>
                 <p>
-                  <strong>LINE ID 會與作品一同保存</strong>
+                  <strong>手機號碼會與作品一同保存</strong>
                   方便日後在路老師系統中找到這次創作。
                 </p>
               </div>
@@ -593,45 +782,99 @@ export function CameraBooth({
                 <p>兩個步驟，就可以開始創作。</p>
               </div>
 
-              <label className="guest-entry-field" htmlFor="guest-line-id">
+              <label className="guest-entry-field" htmlFor="guest-mobile">
                 <span>
-                  路老師通用 LINE ID
+                  手機號碼
                   <b>必填</b>
                 </span>
                 <input
-                  ref={lineIdInputRef}
-                  id="guest-line-id"
-                  name="lineId"
-                  type="text"
-                  value={lineId}
+                  ref={mobileInputRef}
+                  id="guest-mobile"
+                  name="mobile"
+                  type="tel"
+                  inputMode="numeric"
+                  maxLength={MAX_IDENTITY_INPUT_LENGTH}
+                  value={mobile}
                   onChange={(event) => {
-                    setLineId(event.target.value);
+                    setMobile(event.target.value);
                     setError(null);
+                    if (identity || challenge) clearIdentity();
                   }}
+                  readOnly={Boolean(identity)}
                   onBlur={() => {
-                    if (
-                      lineId.trim() &&
-                      !isValidLineId(normalizeLineId(lineId))
-                    ) {
-                      setError(
-                        "LINE ID 格式需為「數字-姓名-地區」，例如 112-張小明-南投縣。",
-                      );
+                    if (mobile.trim() && !isValidMobile(normalizeMobile(mobile))) {
+                      setError(MOBILE_FORMAT_ERROR);
                     }
                   }}
-                  placeholder="例如：112-張小明-南投縣"
-                  autoComplete="off"
+                  placeholder="例如：0912345678"
+                  autoComplete="tel"
                   spellCheck={false}
-                  aria-describedby="guest-line-id-help"
-                  aria-invalid={error?.includes("LINE ID") || undefined}
+                  aria-describedby="guest-mobile-help"
+                  aria-invalid={error?.includes("手機") || undefined}
                   required
                 />
-                <small id="guest-line-id-help">格式：數字－姓名－地區</small>
+                <small id="guest-mobile-help">格式：09 開頭共 10 碼</small>
               </label>
+
+              {identity ? (
+                <p className="guest-identity-verified" role="status">
+                  <strong>已完成驗證</strong>
+                  這支號碼已與路老師系統確認，可以開始選照片。
+                  <button
+                    type="button"
+                    className="text-button"
+                    onClick={() => {
+                      clearIdentity();
+                      setMobile("");
+                      window.requestAnimationFrame(() =>
+                        mobileInputRef.current?.focus(),
+                      );
+                    }}
+                  >
+                    換一支號碼
+                  </button>
+                </p>
+              ) : challenge ? (
+                <div className="guest-identity-challenge">
+                  <p className="guest-identity-question">
+                    <strong>請選出這支號碼登記的姓名</strong>
+                    只有本人知道答案，用來確認這支號碼確實是您的。
+                  </p>
+                  <div className="guest-identity-options">
+                    {challenge.options.map((name) => (
+                      <button
+                        key={name}
+                        type="button"
+                        className="secondary-button guest-identity-option"
+                        disabled={challengeBusy}
+                        onClick={() => void submitAnswer(name)}
+                      >
+                        {name}
+                      </button>
+                    ))}
+                  </div>
+                  {challenge.attemptsRemaining !== null && (
+                    <small className="guest-identity-attempts">
+                      還可以嘗試 {challenge.attemptsRemaining} 次
+                    </small>
+                  )}
+                </div>
+              ) : (
+                <button
+                  type="button"
+                  className="secondary-button guest-identity-start"
+                  disabled={challengeBusy}
+                  onClick={() => void startChallenge()}
+                >
+                  {challengeBusy ? "驗證中…" : "驗證手機號碼"}
+                </button>
+              )}
 
               <label
                 className={`guest-upload-field ${
                   previewUrl && photoSource === "upload" ? "has-photo" : ""
-                }`}
+                } ${identity ? "" : "is-locked"}`}
+                aria-disabled={identity ? undefined : true}
               >
                 <input
                   ref={uploadInputRef}
@@ -639,6 +882,7 @@ export function CameraBooth({
                   type="file"
                   name="image"
                   accept="image/jpeg,image/png,image/webp"
+                  disabled={!identity}
                   onChange={(event) =>
                     selectUploadedPhoto(event.target.files?.[0])
                   }
@@ -674,7 +918,11 @@ export function CameraBooth({
                 </p>
               )}
 
-              <button type="submit" className="primary-button guest-entry-submit">
+              <button
+                type="submit"
+                className="primary-button guest-entry-submit"
+                disabled={!identity}
+              >
                 預覽我的照片
                 <span className="button-arrow">
                   <ArrowIcon />
@@ -683,6 +931,7 @@ export function CameraBooth({
               <button
                 type="button"
                 className="secondary-button guest-camera-option"
+                disabled={!identity}
                 onClick={continueWithCamera}
               >
                 <CameraIcon />
@@ -903,6 +1152,11 @@ export function CameraBooth({
                 {session.generationOptions?.fakeGenerate && (
                   <p className="demo-mode-banner" role="status">
                     示範模式：這次是假生成，掃 QR 會看到固定示範人像，不是這位訪客的真實結果。
+                  </p>
+                )}
+                {session.identityStored === false && (
+                  <p className="demo-mode-banner" role="alert">
+                    這次的手機號碼沒有存檔成功，作品之後可能無法對應到這位訪客，請記下 QR 連結。
                   </p>
                 )}
                 <div className="share-copy">

@@ -70,6 +70,24 @@ describe("GET /api/sessions/[id]", () => {
     });
   });
 
+  // This route has no auth and its id is the QR code on the booth screen, so
+  // anyone the guest forwards the link to can read whatever it returns.
+  it("never exposes the guest's phone number to an unauthenticated reader", async () => {
+    const session = await createSession(imageFile(), {
+      identity: { kind: "mobile", value: "0912345678" },
+    });
+
+    const response = await getStatus(
+      new Request("http://phone.local"),
+      routeContext(session.id),
+    );
+    const body = await response.text();
+
+    expect(response.status).toBe(200);
+    expect(body).not.toContain("0912345678");
+    expect(JSON.parse(body)).toMatchObject({ identityClaimed: true });
+  });
+
   it("reports progress once rendering has started", async () => {
     const session = await createSession(imageFile());
     await updateSession(session.id, {
@@ -161,7 +179,9 @@ describe("POST /api/sessions/[id]/generate", () => {
       outputCompression: 70,
       fakeGenerate: false,
     } as const;
-    const session = await createSession(imageFile(), booth);
+    const session = await createSession(imageFile(), {
+      generationOptions: booth,
+    });
     await writeResultImage(session.id, jpegBytes(), "image/jpeg");
 
     // The guest-facing retry button sends only `force`.
@@ -237,7 +257,10 @@ describe("POST /api/sessions/[id]/generate", () => {
     );
 
     expect(response.status).toBe(400);
-    expect(await response.json()).toEqual({ error: message });
+    expect(await response.json()).toEqual({
+      error: message,
+      code: "IMAGE_OPTIONS_INVALID",
+    });
   });
 
   it("surfaces a missing OpenAI configuration as a 500", async () => {
