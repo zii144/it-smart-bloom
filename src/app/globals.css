@@ -672,14 +672,14 @@ select:focus-visible {
    * Fluid sizing: the card is 100u wide and its height is roughly
    * ratio * u + 72px (the 72px covers fixed minimums such as the button).
    * The watercolor florals are the original poster with its text removed
-   * (see scripts/build-invitation-paper.py), stretched to the card.
+   * (see scripts/build-invitation-paper.py); see .invitation-paper.
    * The unit shrinks until the whole card fits inside the viewport minus the
    * surrounding chrome (header, footer, stage and wrapper padding), so the
    * invitation never needs scrolling.
    */
   --invitation-chrome: 280px;
   --invitation-gutter: calc(12vw + 108px);
-  --invitation-ratio: 124;
+  --invitation-ratio: 128;
   --uw: calc((100vw - var(--invitation-gutter)) / 100);
   --uh: calc((100svh - var(--invitation-chrome)) / var(--invitation-ratio));
   --u: min(var(--uw), max(3px, min(7.8px, var(--uh))));
@@ -690,7 +690,7 @@ select:focus-visible {
   flex-direction: column;
   align-items: center;
   overflow: hidden;
-  padding: calc(var(--u) * 13) calc(var(--u) * 10) calc(var(--u) * 9);
+  padding: calc(var(--u) * 13) calc(var(--u) * 10) calc(var(--u) * 12.5);
   border: 1px solid rgba(185, 84, 69, 0.32);
   border-radius: 4px;
   color: var(--ink);
@@ -712,7 +712,7 @@ select:focus-visible {
  */
 .invitation-card::before {
   position: absolute;
-  inset: 7.5% 7.5% 6.3% 8%;
+  inset: calc(var(--u) * 9.6) calc(var(--u) * 7.5) calc(var(--u) * 8.2) calc(var(--u) * 8);
   z-index: 1;
   border: 1px solid rgba(185, 84, 69, 0.5);
   content: "";
@@ -725,6 +725,13 @@ select:focus-visible {
   z-index: 2;
 }
 
+/*
+ * The floral paper is drawn twice at its natural aspect ratio: once pinned to
+ * the top of the card and once to the bottom, each fading out toward the
+ * middle. On a card shaped like the poster the two halves line up exactly; on
+ * a tall phone card the peonies stay undistorted at the corners and the cream
+ * paper simply extends through the middle.
+ */
 .invitation-paper {
   position: absolute;
   inset: 0;
@@ -732,8 +739,30 @@ select:focus-visible {
   pointer-events: none;
 }
 
-.invitation-paper img {
-  object-fit: fill;
+.invitation-paper::before,
+.invitation-paper::after {
+  position: absolute;
+  right: 0;
+  left: 0;
+  height: 60%;
+  content: "";
+  background-image: url("/images/watercolor/invitation-paper.webp");
+  background-repeat: no-repeat;
+  background-size: 100% auto;
+}
+
+.invitation-paper::before {
+  top: 0;
+  background-position: center top;
+  -webkit-mask-image: linear-gradient(#000 70%, transparent);
+  mask-image: linear-gradient(#000 70%, transparent);
+}
+
+.invitation-paper::after {
+  bottom: 0;
+  background-position: center bottom;
+  -webkit-mask-image: linear-gradient(transparent, #000 30%);
+  mask-image: linear-gradient(transparent, #000 30%);
 }
 
 .invitation-corner {
@@ -2831,7 +2860,8 @@ select:focus-visible {
   }
 
   .booth-stage-invitation {
-    padding: 12px 14px 16px;
+    place-items: stretch;
+    padding: 8px;
   }
 
   .booth-stage-upload {
@@ -2901,25 +2931,40 @@ select:focus-visible {
   .invitation-welcome {
     width: 100%;
     padding: 0;
+    place-items: stretch;
   }
 
   .invitation-welcome::before {
     display: none;
   }
 
+  /*
+   * On phones the card fills the screen between the header and footer
+   * (68px + 48px, plus the stage's 8px gutters). Content keeps its fluid
+   * sizing; any height left over is shared out by the three ornamental rules,
+   * so the sections spread evenly instead of leaving a gap above the card.
+   */
   .invitation-card {
     /* Phones are width-bound, so let type grow a little taller than the
        layout unit, but never past what the viewport height allows. */
-    --invitation-chrome: 228px;
-    --invitation-gutter: 36px;
-    --invitation-ratio: 134;
-    --u: min(var(--uw), max(2.7px, var(--uh)));
+    --invitation-chrome: 216px;
+    --invitation-gutter: 16px;
+    --invitation-ratio: 138;
+    width: 100%;
+    min-height: calc(100svh - 68px - 48px - 16px);
+    justify-content: center;
+    --u: min(var(--uw), max(2.4px, var(--uh)));
     /* Height budget: ~72u of spacing + ~44t of type + fixed minimums. */
     --t: min(
       calc(var(--u) * 1.22),
       max(2.7px, calc((100svh - var(--invitation-chrome) - var(--u) * 72) / 44))
     );
-    padding: calc(var(--u) * 13) calc(var(--u) * 8) calc(var(--u) * 9);
+    padding: calc(var(--u) * 13) calc(var(--u) * 8) calc(var(--u) * 12.5);
+  }
+
+  .invitation-rule {
+    flex: 1 0 auto;
+    max-height: calc(var(--u) * 18);
   }
 
   .invitation-program {

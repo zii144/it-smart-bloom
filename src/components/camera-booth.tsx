@@ -1,6 +1,7 @@
 "use client";
 
 import Image from "next/image";
+import { preload } from "react-dom";
 import {
   useCallback,
   useEffect,
@@ -150,6 +151,9 @@ export function CameraBooth({
 }: {
   tuningEnabled?: boolean;
 }) {
+  // The invitation's floral paper is a CSS background (see .invitation-paper),
+  // so hint it early instead of waiting for the stylesheet to discover it.
+  preload("/images/watercolor/invitation-paper.webp", { as: "image" });
   const [step, setStep] = useState<BoothStep>("invitation");
   const [lineId, setLineId] = useState("");
   const [photo, setPhoto] = useState<Blob | null>(null);
@@ -479,15 +483,7 @@ export function CameraBooth({
             aria-labelledby="invitation-title"
           >
             <article className="invitation-card">
-              <div className="invitation-paper" aria-hidden="true">
-                <Image
-                  src="/images/watercolor/invitation-paper.webp"
-                  alt=""
-                  fill
-                  sizes="(max-width: 700px) 100vw, 780px"
-                  preload
-                />
-              </div>
+              <div className="invitation-paper" aria-hidden="true" />
               <span
                 className="invitation-corner invitation-corner-one"
                 aria-hidden="true"
