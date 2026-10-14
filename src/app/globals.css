@@ -726,11 +726,14 @@ select:focus-visible {
 }
 
 /*
- * The floral paper is drawn twice at its natural aspect ratio: once pinned to
- * the top of the card and once to the bottom, each fading out toward the
- * middle. On a card shaped like the poster the two halves line up exactly; on
- * a tall phone card the peonies stay undistorted at the corners and the cream
- * paper simply extends through the middle.
+ * The floral paper is drawn as two halves at its natural aspect ratio: the
+ * image's top half pinned to the top of the card, its bottom half pinned to
+ * the bottom. Each half is exactly half the image tall (1216 x 1543 source)
+ * and never more than half the card, so the halves can only meet or leave a
+ * gap, never overlap and draw a peony twice. On a poster-shaped card they
+ * meet exactly; on a tall phone card the cream paper shows between them and
+ * the peonies stay undistorted. A short fade at each inner edge hides the
+ * seam across the side greenery.
  */
 .invitation-paper {
   position: absolute;
@@ -744,7 +747,8 @@ select:focus-visible {
   position: absolute;
   right: 0;
   left: 0;
-  height: 60%;
+  max-height: 50%;
+  aspect-ratio: 1216 / 771.5;
   content: "";
   background-image: url("/images/watercolor/invitation-paper.webp");
   background-repeat: no-repeat;
@@ -754,15 +758,15 @@ select:focus-visible {
 .invitation-paper::before {
   top: 0;
   background-position: center top;
-  -webkit-mask-image: linear-gradient(#000 70%, transparent);
-  mask-image: linear-gradient(#000 70%, transparent);
+  -webkit-mask-image: linear-gradient(#000 88%, transparent);
+  mask-image: linear-gradient(#000 88%, transparent);
 }
 
 .invitation-paper::after {
   bottom: 0;
   background-position: center bottom;
-  -webkit-mask-image: linear-gradient(transparent, #000 30%);
-  mask-image: linear-gradient(transparent, #000 30%);
+  -webkit-mask-image: linear-gradient(transparent, #000 12%);
+  mask-image: linear-gradient(transparent, #000 12%);
 }
 
 .invitation-corner {
