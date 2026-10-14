@@ -115,6 +115,18 @@ describe("mock mode", () => {
     expect(isRoadTeacherAvatarMockEnabled()).toBe(false);
   });
 
+  it("ignores the image-tuning switch, which production may turn on", () => {
+    process.env.NEXT_PUBLIC_RT_MOCK = "true";
+    vi.stubEnv("NEXT_PUBLIC_IMAGE_TUNING", "1");
+    expect(isRoadTeacherAvatarMockEnabled()).toBe(false);
+  });
+
+  it("activates on a Vercel preview", () => {
+    process.env.NEXT_PUBLIC_RT_MOCK = "true";
+    vi.stubEnv("VERCEL_ENV", "preview");
+    expect(isRoadTeacherAvatarMockEnabled()).toBe(true);
+  });
+
   it("skips the network call in development", async () => {
     vi.stubEnv("NODE_ENV", "development");
     process.env.NEXT_PUBLIC_RT_MOCK = "true";

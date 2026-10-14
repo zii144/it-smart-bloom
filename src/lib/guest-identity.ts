@@ -8,9 +8,14 @@ export type GuestIdentity = { name: string; mobile: string };
 
 export const MAX_NAME_LENGTH = 30;
 
-/** NFKC (full-width → half-width), trimmed, inner whitespace collapsed. */
+/**
+ * Trimmed only. Road-teacher stores displayName exactly as typed at
+ * registration (full-width brackets and spaces included) and matches it
+ * exactly, so any further folding here would make those teachers
+ * unmatchable.
+ */
 export function normalizeName(raw: string) {
-  return raw.normalize("NFKC").trim().replace(/\s+/g, " ");
+  return raw.trim();
 }
 
 /** Taiwan mobile as `09xxxxxxxx`: drops spaces, dashes, brackets; +886 → 0. */

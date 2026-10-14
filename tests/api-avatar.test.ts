@@ -1,11 +1,6 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import { POST as postClaim } from "@/app/api/sessions/[id]/claim/route";
 import { POST as postAvatar } from "@/app/api/sessions/[id]/avatar/route";
-import {
-  createSession,
-  getSession,
-  writeResultImage,
-} from "@/lib/sessions";
+import { createSession, writeResultImage } from "@/lib/sessions";
 import { imageFile, jpegBytes, routeContext } from "./helpers";
 
 const { requestAvatarMock, markAvatarRequestMock } = vi.hoisted(() => ({
@@ -23,25 +18,10 @@ vi.mock("@/lib/road-teacher-avatar", async (importActual) => {
 });
 
 vi.mock("@/lib/portrait-archive", () => ({
-  claimSessionIdentity: vi.fn(async () => ({
-    identityKey: "mobile_0912345678",
-    claimedAt: new Date().toISOString(),
-  })),
   markAvatarRequest: markAvatarRequestMock,
 }));
 
 const IDENTITY = { name: "張小明", mobile: "0912345678" };
-
-function claim(sessionId: string, body: unknown) {
-  return postClaim(
-    new Request("http://phone.local", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(body),
-    }),
-    routeContext(sessionId),
-  );
-}
 
 function requestAvatar(sessionId: string) {
   return postAvatar(
@@ -51,9 +31,8 @@ function requestAvatar(sessionId: string) {
 }
 
 async function completedSessionWithIdentity() {
-  const session = await createSession(imageFile());
+  const session = await createSession(imageFile(), undefined, undefined, IDENTITY);
   await writeResultImage(session.id, jpegBytes(), "image/jpeg");
-  await claim(session.id, IDENTITY);
   return session;
 }
 
@@ -61,37 +40,6 @@ beforeEach(() => {
   requestAvatarMock.mockReset();
   requestAvatarMock.mockResolvedValue({ mock: false });
   markAvatarRequestMock.mockClear();
-});
-
-describe("POST /api/sessions/[id]/claim", () => {
-  it("stores the name and mobile but never returns them", async () => {
-    const session = await createSession(imageFile());
-    await writeResultImage(session.id, jpegBytes(), "image/jpeg");
-
-    const response = await claim(session.id, {
-      name: " 張小明 ",
-      mobile: "0912-345-678",
-    });
-
-    expect(response.status).toBe(200);
-    const text = await response.text();
-    expect(JSON.parse(text).identityClaimed).toBe(true);
-    expect(text).not.toContain("0912345678");
-    expect(text).not.toContain("張小明");
-    expect((await getSession(session.id)).identity).toMatchObject(IDENTITY);
-  });
-
-  it("rejects a claim without a mobile", async () => {
-    const session = await createSession(imageFile());
-    const response = await claim(session.id, { name: "張小明" });
-    expect(response.status).toBe(400);
-  });
-
-  it("no longer accepts a LINE ID", async () => {
-    const session = await createSession(imageFile());
-    const response = await claim(session.id, { lineId: "112-張小明-南投縣" });
-    expect(response.status).toBe(400);
-  });
 });
 
 describe("POST /api/sessions/[id]/avatar", () => {
@@ -157,9 +105,20 @@ describe("POST /api/sessions/[id]/avatar", () => {
     expect(markAvatarRequestMock).not.toHaveBeenCalled();
   });
 
+  it("still reports success when recording the outcome fails", async () => {
+    vi.spyOn(console, "error").mockImplementation(() => undefined);
+    markAvatarRequestMock.mockRejectedValueOnce(new Error("firestore down"));
+    const session = await completedSessionWithIdentity();
+
+    const response = await requestAvatar(session.id);
+
+    // Road-teacher already changed the avatar; a bookkeeping error must not
+    // tell the guest otherwise (and invite a retry that costs a rate slot).
+    expect(response.status).toBe(200);
+  });
+
   it("waits for the portrait to finish", async () => {
-    const session = await createSession(imageFile());
-    await claim(session.id, IDENTITY);
+    const session = await createSession(imageFile(), undefined, undefined, IDENTITY);
 
     const response = await requestAvatar(session.id);
 

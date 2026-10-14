@@ -13,6 +13,16 @@ import {
 export const runtime = "nodejs";
 export const maxDuration = 60;
 
+/** Archive bookkeeping is best effort: it must never change what the guest is told. */
+async function recordOutcome(
+  id: string,
+  outcome: { ok: true } | { ok: false; error: string },
+) {
+  await markAvatarRequest(id, outcome).catch((error) => {
+    console.error("Failed to record avatar outcome:", error);
+  });
+}
+
 /**
  * Sets the finished portrait as the guest's 路老師 avatar, using the 姓名 +
  * 手機號碼 they entered at the booth. Road-teacher decides which teacher that
@@ -51,10 +61,10 @@ export async function POST(
         imageBytes: result.bytes,
         imageMime: result.mime,
       }));
-      if (!mock) await markAvatarRequest(id, { ok: true });
+      if (!mock) await recordOutcome(id, { ok: true });
     } catch (error) {
       if (error instanceof RoadTeacherAvatarError) {
-        await markAvatarRequest(id, { ok: false, error: error.code });
+        await recordOutcome(id, { ok: false, error: error.code });
         return Response.json(
           { error: error.message, code: error.code },
           { status: error.status },

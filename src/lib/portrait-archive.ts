@@ -1,4 +1,3 @@
-import type { GuestIdentity } from "@/lib/guest-identity";
 import { identityStorageKey } from "@/lib/guest-identity";
 import { getBucket, getDb, isFirebaseConfigured } from "@/lib/firebase-admin";
 import type { ImageSession, SessionStatus } from "@/lib/sessions";
@@ -46,6 +45,11 @@ function identityDoc(identityKey: string) {
   return db.collection("identities").doc(identityKey);
 }
 
+/** Storage paths under identities/ embed the guest's mobile; keep it out of logs. */
+function redactPath(objectPath: string) {
+  return objectPath.replace(/mobile_\d+/g, "mobile_***");
+}
+
 async function uploadBytes(
   objectPath: string,
   bytes: Buffer,
@@ -63,7 +67,10 @@ async function uploadBytes(
     });
     return objectPath;
   } catch (error) {
-    console.error(`Firebase Storage upload failed for ${objectPath}:`, error);
+    console.error(
+      `Firebase Storage upload failed for ${redactPath(objectPath)}:`,
+      error,
+    );
     return null;
   }
 }
@@ -187,74 +194,6 @@ export async function archiveSessionStatus(
   );
 }
 
-export async function claimSessionIdentity(
-  session: ImageSession,
-  identity: GuestIdentity,
-  images: {
-    input: { bytes: Buffer; mime: string };
-    result: { bytes: Buffer; mime: string } | null;
-  },
-) {
-  if (!isFirebaseConfigured()) {
-    throw new Error("尚未設定 Firebase，無法保存身分資料。");
-  }
-
-  const key = identityStorageKey(identity);
-  const claimedAt = new Date().toISOString();
-  const identityRef = identityDoc(key);
-  if (!identityRef) {
-    throw new Error("尚未設定 Firebase，無法保存身分資料。");
-  }
-
-  const identityInputPath = await uploadBytes(
-    `identities/${key}/${session.id}/input`,
-    images.input.bytes,
-    images.input.mime,
-  );
-
-  let identityResultPath: string | null = null;
-  if (images.result) {
-    identityResultPath = await uploadBytes(
-      `identities/${key}/${session.id}/result`,
-      images.result.bytes,
-      images.result.mime,
-    );
-  }
-
-  await sessionDoc(session.id)?.set(
-    {
-      identityKind: "mobile",
-      identityValue: identity.mobile,
-      identityName: identity.name,
-      identityKey: key,
-      claimedAt,
-      updatedAt: claimedAt,
-      status: session.status,
-      error: session.error ?? null,
-      storage: {
-        identityInputPath,
-        identityResultPath,
-      },
-    },
-    { merge: true },
-  );
-
-  const previous = await identityRef.get();
-  const previousIds = (previous.data()?.sessionIds as string[] | undefined) ?? [];
-  await identityRef.set(
-    {
-      kind: "mobile",
-      value: identity.mobile,
-      name: identity.name,
-      updatedAt: claimedAt,
-      sessionIds: Array.from(new Set([...previousIds, session.id])),
-    },
-    { merge: true },
-  );
-
-  return { identityKey: key, claimedAt };
-}
-
 /**
  * Admin label for an archived identity: "姓名｜手機" for current records, or
  * the legacy "kind:value" form (LINE ID / mobile only), which the dashboard
@@ -311,7 +250,10 @@ export async function readArchiveImage(objectPath: string): Promise<{
         : "application/octet-stream";
     return { bytes: Buffer.from(bytes), mime };
   } catch (error) {
-    console.error(`Firebase Storage download failed for ${objectPath}:`, error);
+    console.error(
+      `Firebase Storage download failed for ${redactPath(objectPath)}:`,
+      error,
+    );
     return null;
   }
 }

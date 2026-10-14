@@ -1,5 +1,3 @@
-import { isImageTuningEnabled } from "@/lib/runtime-env";
-
 /**
  * Server-to-server call to road-teacher's bloomSetAvatarByIdentity function
  * (road-teacher docs/BLOOM_IDENTITY_AVATAR.md). Sends the finished portrait
@@ -45,12 +43,16 @@ export class RoadTeacherAvatarError extends Error {
 
 /**
  * Dev/preview stand-in, enabled by NEXT_PUBLIC_RT_MOCK (already set in
- * .env.development.local). Never active in production builds, so a stray
- * flag cannot fake a success for a real guest.
+ * .env.development.local). Gated on the build itself — `next dev` or a
+ * Vercel preview — and deliberately NOT on NEXT_PUBLIC_IMAGE_TUNING, which
+ * can be switched on in production. A stray flag therefore cannot skip the
+ * real call for a production guest.
  */
 export function isRoadTeacherAvatarMockEnabled() {
   const flag = process.env.NEXT_PUBLIC_RT_MOCK?.trim().toLowerCase();
-  return (flag === "1" || flag === "true") && isImageTuningEnabled();
+  if (flag !== "1" && flag !== "true") return false;
+  const vercelEnv = process.env.VERCEL_ENV || process.env.NEXT_PUBLIC_VERCEL_ENV;
+  return process.env.NODE_ENV === "development" || vercelEnv === "preview";
 }
 
 export async function requestRoadTeacherAvatar(input: {

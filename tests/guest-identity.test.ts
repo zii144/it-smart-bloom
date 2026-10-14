@@ -54,8 +54,9 @@ describe("parseGuestIdentity", () => {
 });
 
 describe("normalizers", () => {
-  it("folds full-width characters and collapses whitespace in names", () => {
-    expect(normalizeName("Ｍａｒｙ   Lin")).toBe("Mary Lin");
+  it("only trims names, so they match road-teacher's stored value", () => {
+    expect(normalizeName("  陳麗娥（Tracy） ")).toBe("陳麗娥（Tracy）");
+    expect(normalizeName("王　小明")).toBe("王　小明");
   });
 
   it.each([
