@@ -5,7 +5,10 @@ import {
 import { getAdminHealth } from "@/lib/admin-health";
 import { defaultImageOptions } from "@/lib/image-options";
 import { readSpendSnapshot } from "@/lib/image-spend";
-import { listArchiveSessions } from "@/lib/portrait-archive";
+import {
+  archiveIdentityLabel,
+  listArchiveSessions,
+} from "@/lib/portrait-archive";
 import { listLocalSessions } from "@/lib/sessions";
 
 export const runtime = "nodejs";
@@ -61,7 +64,7 @@ export async function GET(request: Request) {
         createdAt: session.createdAt,
         updatedAt: session.generationStartedAt ?? session.createdAt,
         identity: session.identity
-          ? `${session.identity.kind}:${session.identity.value}`
+          ? `${session.identity.name}｜${session.identity.mobile}`
           : null,
         avatarRequestStatus: null,
         fakeGenerate: Boolean(session.generationOptions?.fakeGenerate),
@@ -78,10 +81,7 @@ export async function GET(request: Request) {
         status: session.status,
         createdAt: session.createdAt,
         updatedAt: session.updatedAt,
-        identity:
-          session.identityKind && session.identityValue
-            ? `${session.identityKind}:${session.identityValue}`
-            : null,
+        identity: archiveIdentityLabel(session),
         avatarRequestStatus: session.avatarRequestStatus,
         fakeGenerate: null,
         source: session.source ?? null,

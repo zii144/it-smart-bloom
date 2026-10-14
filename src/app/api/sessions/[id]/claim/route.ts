@@ -49,8 +49,8 @@ export async function POST(
 
     const claimed = await updateSession(id, {
       identity: {
-        kind: identity.kind,
-        value: identity.value,
+        name: identity.name,
+        mobile: identity.mobile,
         claimedAt: new Date().toISOString(),
       },
     });

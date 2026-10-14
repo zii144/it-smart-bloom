@@ -21,16 +21,15 @@ async function flushAfterCallbacks() {
 function createRequest(
   file = imageFile(),
   imageOptions?: string,
-  lineId?: string,
+  identity?: { name?: string; mobile?: string },
 ) {
   const body = new FormData();
   body.set("image", file);
   if (imageOptions !== undefined) {
     body.set("imageOptions", imageOptions);
   }
-  if (lineId !== undefined) {
-    body.set("lineId", lineId);
-  }
+  if (identity?.name !== undefined) body.set("name", identity.name);
+  if (identity?.mobile !== undefined) body.set("mobile", identity.mobile);
   return new Request("http://booth.local/api/sessions", {
     method: "POST",
     body,
@@ -59,33 +58,42 @@ describe("POST /api/sessions", () => {
     });
   });
 
-  it("stores a validated LINE ID with an uploaded portrait", async () => {
+  it("stores the guest's name and mobile without returning them", async () => {
     const response = await POST(
-      createRequest(imageFile(), undefined, "112-張小明-南投縣"),
+      createRequest(imageFile(), undefined, {
+        name: "張小明",
+        mobile: "0912-345-678",
+      }),
     );
-    const payload = await response.json();
+    const text = await response.text();
+    const payload = JSON.parse(text);
 
     expect(response.status).toBe(201);
-    expect(payload.identity).toMatchObject({
-      kind: "lineId",
-      value: "112-張小明-南投縣",
-    });
+    expect(payload.identityClaimed).toBe(true);
+    // The response feeds the booth's QR screen; the session id it carries is
+    // public, so the identity must stay server-side.
+    expect(text).not.toContain("0912345678");
+    expect(text).not.toContain("張小明");
     await expect(getSession(payload.id)).resolves.toMatchObject({
-      identity: {
-        kind: "lineId",
-        value: "112-張小明-南投縣",
-      },
+      identity: { name: "張小明", mobile: "0912345678" },
     });
   });
 
-  it("rejects an invalid LINE ID before creating the portrait", async () => {
-    const response = await POST(
-      createRequest(imageFile(), undefined, "張小明"),
-    );
+  it.each([
+    [{ name: "張小明" }],
+    [{ mobile: "0912345678" }],
+    [{ name: "張小明", mobile: "12345" }],
+  ])("rejects an incomplete identity %p before creating the portrait", async (identity) => {
+    const response = await POST(createRequest(imageFile(), undefined, identity));
 
     expect(response.status).toBe(400);
     expect(await response.json()).toMatchObject({ error: expect.any(String) });
     expect(afterMock).not.toHaveBeenCalled();
+  });
+
+  it("creates a session without identity when neither field is sent", async () => {
+    const payload = await (await POST(createRequest())).json();
+    expect(payload.identityClaimed).toBe(false);
   });
 
   it("builds the share link from APP_BASE_URL when configured", async () => {

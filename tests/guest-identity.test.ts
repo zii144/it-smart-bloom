@@ -1,48 +1,76 @@
 import { describe, expect, it } from "vitest";
 import {
   IdentityError,
+  MAX_NAME_LENGTH,
   identityStorageKey,
+  normalizeMobile,
+  normalizeName,
   parseGuestIdentity,
 } from "@/lib/guest-identity";
 
 describe("parseGuestIdentity", () => {
-  it("accepts a road-teacher Line ID", () => {
-    expect(parseGuestIdentity({ lineId: "112-張小明-南投縣" })).toEqual({
-      kind: "lineId",
-      value: "112-張小明-南投縣",
-    });
+  it("accepts a name and a Taiwan mobile", () => {
+    expect(
+      parseGuestIdentity({ name: "張小明", mobile: "0912345678" }),
+    ).toEqual({ name: "張小明", mobile: "0912345678" });
   });
 
-  it("accepts a Taiwan mobile number", () => {
-    expect(parseGuestIdentity({ mobile: "0912-345-678" })).toEqual({
-      kind: "mobile",
-      value: "0912345678",
-    });
+  it("normalizes both fields the way road-teacher does", () => {
+    expect(
+      parseGuestIdentity({ name: "  張小明 ", mobile: "+886 912-345-678" }),
+    ).toEqual({ name: "張小明", mobile: "0912345678" });
   });
 
-  it("rejects filling both fields", () => {
+  it("requires a name", () => {
+    expect(() => parseGuestIdentity({ mobile: "0912345678" })).toThrow(
+      IdentityError,
+    );
     expect(() =>
-      parseGuestIdentity({ lineId: "112-張小明-南投縣", mobile: "0912345678" }),
-    ).toThrow(IdentityError);
+      parseGuestIdentity({ name: "   ", mobile: "0912345678" }),
+    ).toThrow(/姓名/);
   });
 
-  it("rejects an empty submission", () => {
-    expect(() => parseGuestIdentity({})).toThrow(/請填寫/);
+  it("requires a Taiwan mobile", () => {
+    expect(() => parseGuestIdentity({ name: "張小明" })).toThrow(/手機/);
+    expect(() =>
+      parseGuestIdentity({ name: "張小明", mobile: "0212345678" }),
+    ).toThrow(/台灣手機/);
   });
 
-  it("rejects a malformed Line ID", () => {
-    expect(() => parseGuestIdentity({ lineId: "張小明" })).toThrow(/格式/);
+  it("rejects an over-long name", () => {
+    expect(() =>
+      parseGuestIdentity({
+        name: "名".repeat(MAX_NAME_LENGTH + 1),
+        mobile: "0912345678",
+      }),
+    ).toThrow(/姓名/);
   });
 
-  it("rejects a non-Taiwan mobile", () => {
-    expect(() => parseGuestIdentity({ mobile: "+886912345678" })).toThrow(
-      /台灣手機/,
+  it("rejects non-string input", () => {
+    expect(() => parseGuestIdentity({ name: 1, mobile: 912345678 })).toThrow(
+      IdentityError,
     );
   });
+});
 
-  it("builds a stable storage key", () => {
-    expect(
-      identityStorageKey({ kind: "lineId", value: "112-張小明-南投縣" }),
-    ).toBe("lineId_112-張小明-南投縣");
+describe("normalizers", () => {
+  it("folds full-width characters and collapses whitespace in names", () => {
+    expect(normalizeName("Ｍａｒｙ   Lin")).toBe("Mary Lin");
+  });
+
+  it.each([
+    ["0912 345 678", "0912345678"],
+    ["(0912)345-678", "0912345678"],
+    ["886912345678", "0912345678"],
+  ])("normalizes mobile %p", (raw, expected) => {
+    expect(normalizeMobile(raw)).toBe(expected);
+  });
+});
+
+describe("identityStorageKey", () => {
+  it("keys the archive folder by mobile alone", () => {
+    expect(identityStorageKey({ mobile: "0912345678" })).toBe(
+      "mobile_0912345678",
+    );
   });
 });

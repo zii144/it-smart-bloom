@@ -35,6 +35,7 @@ type SessionPayload = {
   resultUrl: string | null;
   error: string | null;
   generationOptions?: Record<string, unknown> | null;
+  identityClaimed?: boolean;
 };
 
 const SESSION_ID = "a".repeat(32);
@@ -62,6 +63,7 @@ function sessionPayload(
     resultUrl: null,
     error: null,
     generationOptions: null,
+    identityClaimed: true,
     ...overrides,
   };
 }
@@ -71,8 +73,10 @@ function mockFetch(options: {
   status: () => SessionPayload;
   generate?: () => SessionPayload;
   statusError?: { status: number; error: string };
+  avatar?: { status: number; body: Record<string, unknown> };
 }) {
   const generateCalls: unknown[] = [];
+  const avatarCalls: string[] = [];
 
   const fetchMock = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
     const url = String(input);
@@ -82,6 +86,17 @@ function mockFetch(options: {
         JSON.stringify({ defaults: DEV_DEFAULTS, hasApiKey: true }),
         { status: 200 },
       );
+    }
+
+    if (url.endsWith("/avatar")) {
+      avatarCalls.push(init?.method ?? "GET");
+      const avatar = options.avatar ?? {
+        status: 200,
+        body: { avatarRequested: true, mock: false },
+      };
+      return new Response(JSON.stringify(avatar.body), {
+        status: avatar.status,
+      });
     }
 
     if (url.endsWith("/generate")) {
@@ -100,7 +115,7 @@ function mockFetch(options: {
   });
 
   vi.stubGlobal("fetch", fetchMock);
-  return { fetchMock, generateCalls };
+  return { fetchMock, generateCalls, avatarCalls };
 }
 
 afterEach(() => {
@@ -152,15 +167,33 @@ describe("SessionExperience — guest journey", () => {
     expect(
       screen.getByRole("button", { name: "分享到臉書" }),
     ).toBeDefined();
-    // The avatar CTA is available without any sign-in: auth is never a gate
-    // on seeing or saving the portrait.
+    // The avatar CTA needs no sign-in: the booth already holds the guest's
+    // name and mobile.
     expect(
       screen.getByRole("button", { name: "一鍵替換成路老師系統大頭貼" }),
     ).toBeDefined();
   });
 
-  it("opens the road-teacher login sheet only when the guest asks", async () => {
+  it("hides the avatar CTA when the guest left no name and mobile", async () => {
     mockFetch({
+      status: () =>
+        sessionPayload({
+          status: "complete",
+          resultUrl: `/api/sessions/${SESSION_ID}/image?kind=result`,
+          identityClaimed: false,
+        }),
+    });
+
+    render(<SessionExperience id={SESSION_ID} tuningEnabled={false} />);
+
+    await screen.findByRole("link", { name: "下載我的專屬人像" });
+    expect(
+      screen.queryByRole("button", { name: "一鍵替換成路老師系統大頭貼" }),
+    ).toBeNull();
+  });
+
+  it("replaces the avatar in one tap and confirms it", async () => {
+    const { avatarCalls } = mockFetch({
       status: () =>
         sessionPayload({
           status: "complete",
@@ -171,17 +204,65 @@ describe("SessionExperience — guest journey", () => {
     render(<SessionExperience id={SESSION_ID} tuningEnabled={false} />);
 
     await screen.findByRole("link", { name: "下載我的專屬人像" });
-    expect(screen.queryByRole("dialog")).toBeNull();
-
     fireEvent.click(
       screen.getByRole("button", { name: "一鍵替換成路老師系統大頭貼" }),
     );
-    expect(
-      screen.getByRole("heading", { name: "登入後替換大頭貼" }),
-    ).toBeDefined();
 
-    fireEvent.click(screen.getByRole("button", { name: "取消" }));
+    expect(
+      (await screen.findByRole("status")).textContent,
+    ).toBe("已更新路老師系統大頭貼。");
+    expect(avatarCalls).toEqual(["POST"]);
     expect(screen.queryByRole("dialog")).toBeNull();
+  });
+
+  it("shows road-teacher's reason when no teacher matches", async () => {
+    mockFetch({
+      status: () =>
+        sessionPayload({
+          status: "complete",
+          resultUrl: `/api/sessions/${SESSION_ID}/image?kind=result`,
+        }),
+      avatar: {
+        status: 404,
+        body: {
+          error: "找不到符合這組姓名與手機的路老師",
+          code: "teacher_not_found",
+        },
+      },
+    });
+
+    render(<SessionExperience id={SESSION_ID} tuningEnabled={false} />);
+
+    await screen.findByRole("link", { name: "下載我的專屬人像" });
+    fireEvent.click(
+      screen.getByRole("button", { name: "一鍵替換成路老師系統大頭貼" }),
+    );
+
+    expect((await screen.findByRole("alert")).textContent).toBe(
+      "找不到符合這組姓名與手機的路老師",
+    );
+  });
+
+  it("labels a dev mock run honestly", async () => {
+    mockFetch({
+      status: () =>
+        sessionPayload({
+          status: "complete",
+          resultUrl: `/api/sessions/${SESSION_ID}/image?kind=result`,
+        }),
+      avatar: { status: 200, body: { avatarRequested: true, mock: true } },
+    });
+
+    render(<SessionExperience id={SESSION_ID} tuningEnabled={false} />);
+
+    await screen.findByRole("link", { name: "下載我的專屬人像" });
+    fireEvent.click(
+      screen.getByRole("button", { name: "一鍵替換成路老師系統大頭貼" }),
+    );
+
+    expect((await screen.findByRole("status")).textContent).toContain(
+      "開發模擬",
+    );
   });
 
   it("offers a retry when the render failed", async () => {

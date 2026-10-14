@@ -15,8 +15,12 @@ export type ArchiveRecord = {
   resultMime: string | null;
   source: ImageSession["source"] | null;
   generationOptions: ImageSession["generationOptions"] | null;
-  identityKind: GuestIdentity["kind"] | null;
+  /** "mobile" for 姓名 + 手機 records; legacy records may hold "lineId". */
+  identityKind: "mobile" | "lineId" | null;
+  /** The mobile (or, on legacy records, the LINE ID). */
   identityValue: string | null;
+  /** The guest's 姓名; null on legacy records. */
+  identityName: string | null;
   identityKey: string | null;
   claimedAt: string | null;
   avatarRequestedAt: string | null;
@@ -76,9 +80,7 @@ export async function archiveSessionCreated(session: ImageSession, input: {
     input.mime,
   );
   const identity = session.identity;
-  const identityKey = identity
-    ? identityStorageKey({ kind: identity.kind, value: identity.value })
-    : null;
+  const identityKey = identity ? identityStorageKey(identity) : null;
   const identityInputPath = identityKey
     ? await uploadBytes(
         `identities/${identityKey}/${session.id}/input`,
@@ -100,8 +102,9 @@ export async function archiveSessionCreated(session: ImageSession, input: {
     resultMime: session.resultMime ?? null,
     source: session.source ?? null,
     generationOptions: session.generationOptions ?? null,
-    identityKind: identity?.kind ?? null,
-    identityValue: identity?.value ?? null,
+    identityKind: identity ? "mobile" : null,
+    identityValue: identity?.mobile ?? null,
+    identityName: identity?.name ?? null,
     identityKey,
     claimedAt: identity?.claimedAt ?? null,
     avatarRequestedAt: null,
@@ -124,8 +127,9 @@ export async function archiveSessionCreated(session: ImageSession, input: {
       (previous?.data()?.sessionIds as string[] | undefined) ?? [];
     await ref?.set(
       {
-        kind: identity.kind,
-        value: identity.value,
+        kind: "mobile",
+        value: identity.mobile,
+        name: identity.name,
         updatedAt: now,
         sessionIds: Array.from(new Set([...previousIds, session.id])),
       },
@@ -219,8 +223,9 @@ export async function claimSessionIdentity(
 
   await sessionDoc(session.id)?.set(
     {
-      identityKind: identity.kind,
-      identityValue: identity.value,
+      identityKind: "mobile",
+      identityValue: identity.mobile,
+      identityName: identity.name,
       identityKey: key,
       claimedAt,
       updatedAt: claimedAt,
@@ -238,8 +243,9 @@ export async function claimSessionIdentity(
   const previousIds = (previous.data()?.sessionIds as string[] | undefined) ?? [];
   await identityRef.set(
     {
-      kind: identity.kind,
-      value: identity.value,
+      kind: "mobile",
+      value: identity.mobile,
+      name: identity.name,
       updatedAt: claimedAt,
       sessionIds: Array.from(new Set([...previousIds, session.id])),
     },
@@ -247,6 +253,23 @@ export async function claimSessionIdentity(
   );
 
   return { identityKey: key, claimedAt };
+}
+
+/**
+ * Admin label for an archived identity: "姓名｜手機" for current records, or
+ * the legacy "kind:value" form (LINE ID / mobile only), which the dashboard
+ * localizes.
+ */
+export function archiveIdentityLabel(record: {
+  identityKind?: string | null;
+  identityValue?: string | null;
+  identityName?: string | null;
+}) {
+  if (!record.identityKind || !record.identityValue) return null;
+  if (record.identityName) {
+    return `${record.identityName}｜${record.identityValue}`;
+  }
+  return `${record.identityKind}:${record.identityValue}`;
 }
 
 export async function markAvatarRequest(

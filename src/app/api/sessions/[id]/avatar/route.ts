@@ -1,5 +1,8 @@
 import { markAvatarRequest } from "@/lib/portrait-archive";
-import { requestRoadTeacherAvatar } from "@/lib/road-teacher-avatar";
+import {
+  RoadTeacherAvatarError,
+  requestRoadTeacherAvatar,
+} from "@/lib/road-teacher-avatar";
 import {
   getSession,
   publicSession,
@@ -10,6 +13,11 @@ import {
 export const runtime = "nodejs";
 export const maxDuration = 60;
 
+/**
+ * Sets the finished portrait as the guest's 路老師 avatar, using the 姓名 +
+ * 手機號碼 they entered at the booth. Road-teacher decides which teacher that
+ * is; this route never accepts an identity from the request.
+ */
 export async function POST(
   _request: Request,
   { params }: { params: Promise<{ id: string }> },
@@ -20,7 +28,7 @@ export async function POST(
 
     if (!session.identity) {
       return Response.json(
-        { error: "請先填寫路老師通用 Line ID 或手機號碼。" },
+        { error: "這張作品沒有留下姓名與手機，無法替換大頭貼。" },
         { status: 400 },
       );
     }
@@ -34,27 +42,29 @@ export async function POST(
 
     const result = await readResultImage(id);
 
+    let mock = false;
     try {
-      await requestRoadTeacherAvatar({
+      ({ mock } = await requestRoadTeacherAvatar({
         sessionId: id,
-        identityKind: session.identity.kind,
-        identityValue: session.identity.value,
+        name: session.identity.name,
+        mobile: session.identity.mobile,
         imageBytes: result.bytes,
         imageMime: result.mime,
-      });
-      await markAvatarRequest(id, { ok: true });
+      }));
+      if (!mock) await markAvatarRequest(id, { ok: true });
     } catch (error) {
-      const message =
-        error instanceof Error ? error.message : "路老師系統暫時無法使用。";
-      await markAvatarRequest(id, { ok: false, error: message });
-      return Response.json({ error: message }, { status: 502 });
+      if (error instanceof RoadTeacherAvatarError) {
+        await markAvatarRequest(id, { ok: false, error: error.code });
+        return Response.json(
+          { error: error.message, code: error.code },
+          { status: error.status },
+        );
+      }
+      throw error;
     }
 
     return Response.json(
-      {
-        ...publicSession(session),
-        avatarRequested: true,
-      },
+      { ...publicSession(session), avatarRequested: true, mock },
       { headers: { "Cache-Control": "no-store" } },
     );
   } catch (error) {

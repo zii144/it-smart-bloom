@@ -1229,9 +1229,17 @@ select:focus-visible {
   font-size: 13px;
 }
 
+/* 姓名 + 手機 share a row on wide screens; both are short values. */
+.guest-entry-identity {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+  gap: 14px;
+}
+
 .guest-entry-field {
   position: relative;
   display: grid;
+  min-width: 0;
   gap: 8px;
 }
 
@@ -2911,6 +2919,11 @@ select:focus-visible {
     border-radius: 24px;
   }
 
+  .guest-entry-identity {
+    grid-template-columns: 1fr;
+    gap: 16px;
+  }
+
   .guest-entry-form::before {
     inset: 8px;
     border-radius: 17px;
@@ -3412,6 +3425,10 @@ select:focus-visible {
 .avatar-message {
   font-weight: 700;
   color: var(--ink);
+}
+
+.avatar-message.is-error {
+  color: var(--coral-dark);
 }
 
 /* Login sheet: same visual treatment as the dev settings modal. */
