@@ -1,5 +1,13 @@
 # 路老師大頭貼替換 — Firebase Auth 改造計畫
 
+> **Superseded (2026-10-14).** By product decision the booth identifies guests
+> by 姓名 + 手機號碼 instead, matched by road-teacher's
+> `bloomSetAvatarByIdentity` function (road-teacher
+> `docs/BLOOM_IDENTITY_AVATAR.md`). The sign-in flow below was never
+> deployed and its Bloom client was removed. This plan is kept as the record
+> of the stronger alternative: name + mobile is knowledge-based, so anyone who
+> knows both can set that teacher's avatar.
+
 Replace the unauthenticated LINE ID / mobile identity claim with a real
 Firebase Auth sign-in against the road-teacher (RT) project, and move avatar
 replacement into an RT-owned Cloud Function.

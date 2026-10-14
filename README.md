@@ -47,14 +47,23 @@ npm run dev
 Use `npm run dev:next` only if you need Next without emulators.
 Never set `FIRESTORE_EMULATOR_HOST` / `FIREBASE_STORAGE_EMULATOR_HOST` on Vercel.
 
-### Road-teacher avatar (mock)
+### Road-teacher avatar
 
-`NEXT_PUBLIC_RT_MOCK=true` (set in `.env.development.local`) simulates the
-road-teacher sign-in and avatar replacement against the local
-`/api/dev/set-avatar` stub, so the guest flow works end to end without the
-road-teacher Firebase project. Any password of 6+ characters passes; `wrong`
-fails; `locked@…` / `disabled@…` emails simulate lockout / disabled accounts.
-See `docs/road-teacher-auth-plan.md` for the real integration.
+The booth asks each guest for their 姓名 and 手機號碼. On the result page,
+一鍵替換成路老師系統大頭貼 posts to `/api/sessions/[id]/avatar`, and this
+server sends the portrait with that name and mobile to road-teacher's
+`bloomSetAvatarByIdentity` function. Road-teacher sets it as the avatar of
+the one teacher whose `displayName` and `mobile` both match. The contract is
+in road-teacher's `docs/BLOOM_IDENTITY_AVATAR.md`.
+
+```dotenv
+ROAD_TEACHER_AVATAR_API_URL=https://us-central1-<project>.cloudfunctions.net/bloomSetAvatarByIdentity
+ROAD_TEACHER_AVATAR_API_KEY=<same value as BLOOM_AVATAR_API_KEY on road-teacher>
+```
+
+`NEXT_PUBLIC_RT_MOCK=true` (set in `.env.development.local`) skips the call
+and reports a simulated success. It only takes effect in dev and preview
+builds, never in production.
 
 ### Admin dashboard (ops)
 
