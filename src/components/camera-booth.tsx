@@ -942,7 +942,6 @@ export function CameraBooth({
       </section>
 
       <footer className="site-footer">
-        <span>用心創作・由 OpenAI 提供技術</span>
         <span>繼續使用即表示你同意進行 AI 圖像處理。</span>
       </footer>
 
