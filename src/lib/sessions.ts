@@ -38,9 +38,10 @@ export type ImageSession = {
   source?: SessionSource;
   generationStartedAt?: string;
   generationOptions?: ImageGenerationOptions;
+  /** The guest's 姓名 + 手機號碼. Never returned by publicSession. */
   identity?: {
-    kind: "lineId" | "mobile";
-    value: string;
+    name: string;
+    mobile: string;
     claimedAt: string;
   };
 };
@@ -115,8 +116,9 @@ function sessionFromArchive(record: {
   resultMime?: string | null;
   source?: SessionSource | null;
   generationOptions?: ImageSession["generationOptions"] | null;
-  identityKind?: "lineId" | "mobile" | null;
+  identityKind?: string | null;
   identityValue?: string | null;
+  identityName?: string | null;
   claimedAt?: string | null;
 }): ImageSession {
   const session: ImageSession = {
@@ -138,10 +140,17 @@ function sessionFromArchive(record: {
   if (record.generationOptions) {
     session.generationOptions = record.generationOptions;
   }
-  if (record.identityKind && record.identityValue && record.claimedAt) {
+  // Only name + mobile records carry a usable identity. Legacy LINE ID
+  // records (identityKind "lineId", no name) stay identity-less here.
+  if (
+    record.identityKind === "mobile" &&
+    record.identityValue &&
+    record.identityName &&
+    record.claimedAt
+  ) {
     session.identity = {
-      kind: record.identityKind,
-      value: record.identityValue,
+      name: record.identityName,
+      mobile: record.identityValue,
       claimedAt: record.claimedAt,
     };
   }
@@ -234,8 +243,8 @@ export async function createSession(
     ...(identity
       ? {
           identity: {
-            kind: identity.kind,
-            value: identity.value,
+            name: identity.name,
+            mobile: identity.mobile,
             claimedAt: createdAt.toISOString(),
           },
         }
@@ -476,12 +485,8 @@ export function publicSession(session: ImageSession) {
         ? "無法完成這次創作，請回到拍照裝置後再試一次。"
         : null,
     generationOptions: session.generationOptions ?? null,
-    identity: session.identity
-      ? {
-          kind: session.identity.kind,
-          value: session.identity.value,
-          claimedAt: session.identity.claimedAt,
-        }
-      : null,
+    // GET /api/sessions/[id] is unauthenticated and its id is printed as a
+    // QR code, so the guest's name and mobile never leave the server.
+    identityClaimed: Boolean(session.identity),
   };
 }

@@ -53,11 +53,17 @@ function enterBooth(container: HTMLElement) {
   fireEvent.click(invitationButton);
 }
 
+function fillIdentity(container: HTMLElement) {
+  const name = container.querySelector<HTMLInputElement>("#guest-name");
+  const mobile = container.querySelector<HTMLInputElement>("#guest-mobile");
+  if (!name || !mobile) throw new Error("identity inputs not rendered");
+  fireEvent.change(name, { target: { value: "張小明" } });
+  fireEvent.change(mobile, { target: { value: "0912345678" } });
+}
+
 function enterCameraBooth(container: HTMLElement) {
   enterBooth(container);
-  const lineId = container.querySelector<HTMLInputElement>("#guest-line-id");
-  if (!lineId) throw new Error("LINE ID input not rendered");
-  fireEvent.change(lineId, { target: { value: "112-張小明-南投縣" } });
+  fillIdentity(container);
 
   const cameraButton = [...container.querySelectorAll("button")].find(
     (button) => button.textContent?.includes("改用現場相機"),
@@ -93,7 +99,7 @@ afterEach(() => {
 });
 
 describe("CameraBooth stream attachment", () => {
-  it("opens the LINE ID and image upload form from the invitation", () => {
+  it("opens the name, mobile and image upload form from the invitation", () => {
     const { container } = render(<CameraBooth />);
 
     // The invitation is shown first: its title is artwork, so assert the
@@ -106,18 +112,18 @@ describe("CameraBooth stream attachment", () => {
 
     enterBooth(container);
 
-    expect(container.textContent).toContain("路老師通用 LINE ID");
+    expect(container.querySelector("#guest-name")).toBeTruthy();
+    expect(container.querySelector("#guest-mobile")).toBeTruthy();
+    expect(container.textContent).not.toContain("LINE ID");
     expect(container.querySelector('input[type="file"]')).toBeTruthy();
     expect(container.textContent).toContain("改用現場相機");
   });
 
-  it("previews a valid uploaded image after collecting the LINE ID", () => {
+  it("previews a valid uploaded image after collecting name and mobile", () => {
     const { container } = render(<CameraBooth />);
     enterBooth(container);
 
-    fireEvent.change(container.querySelector("#guest-line-id")!, {
-      target: { value: "112-張小明-南投縣" },
-    });
+    fillIdentity(container);
     fireEvent.change(container.querySelector('input[type="file"]')!, {
       target: {
         files: [
@@ -235,5 +241,53 @@ describe("CameraBooth camera picker", () => {
       }),
     );
     expect(window.localStorage.getItem("bloom.camera.deviceId")).toBe("phone");
+  });
+});
+
+describe("CameraBooth identity fields", () => {
+  it("blocks the photo step until the mobile is a Taiwan number", () => {
+    const { container } = render(<CameraBooth />);
+    enterBooth(container);
+
+    fireEvent.change(container.querySelector("#guest-name")!, {
+      target: { value: "張小明" },
+    });
+    fireEvent.change(container.querySelector("#guest-mobile")!, {
+      target: { value: "12345" },
+    });
+    fireEvent.change(container.querySelector('input[type="file"]')!, {
+      target: {
+        files: [
+          new File([new Uint8Array([0xff, 0xd8, 0xff])], "portrait.jpg", {
+            type: "image/jpeg",
+          }),
+        ],
+      },
+    });
+    fireEvent.click(container.querySelector("button.guest-entry-submit")!);
+
+    expect(container.textContent).not.toContain("就選這張嗎");
+    expect(container.textContent).toContain("台灣手機號碼");
+    expect(
+      container.querySelector("#guest-mobile")?.getAttribute("aria-invalid"),
+    ).toBe("true");
+  });
+
+  it("asks for the name first when it is missing", () => {
+    const { container } = render(<CameraBooth />);
+    enterBooth(container);
+
+    fireEvent.change(container.querySelector("#guest-mobile")!, {
+      target: { value: "0912345678" },
+    });
+    const cameraButton = [...container.querySelectorAll("button")].find(
+      (button) => button.textContent?.includes("改用現場相機"),
+    );
+    fireEvent.click(cameraButton!);
+
+    expect(container.textContent).toContain("請填寫姓名");
+    expect(
+      container.querySelector("#guest-name")?.getAttribute("aria-invalid"),
+    ).toBe("true");
   });
 });

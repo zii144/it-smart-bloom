@@ -31,9 +31,14 @@ export async function POST(request: Request) {
       return Response.json({ error: "請提供一張照片。" }, { status: 400 });
     }
 
+    // The booth always sends both fields; a request with neither (e.g. the
+    // staff camera path) creates a session without an identity.
     let identity: GuestIdentity | undefined;
-    if (formData.has("lineId")) {
-      identity = parseGuestIdentity({ lineId: formData.get("lineId") });
+    if (formData.has("name") || formData.has("mobile")) {
+      identity = parseGuestIdentity({
+        name: formData.get("name"),
+        mobile: formData.get("mobile"),
+      });
     }
 
     const tuningEnabled = isImageTuningEnabled();

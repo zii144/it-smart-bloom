@@ -1,4 +1,3 @@
-import type { GuestIdentity } from "@/lib/guest-identity";
 import { identityStorageKey } from "@/lib/guest-identity";
 import { getBucket, getDb, isFirebaseConfigured } from "@/lib/firebase-admin";
 import type { ImageSession, SessionStatus } from "@/lib/sessions";
@@ -15,8 +14,12 @@ export type ArchiveRecord = {
   resultMime: string | null;
   source: ImageSession["source"] | null;
   generationOptions: ImageSession["generationOptions"] | null;
-  identityKind: GuestIdentity["kind"] | null;
+  /** "mobile" for 姓名 + 手機 records; legacy records may hold "lineId". */
+  identityKind: "mobile" | "lineId" | null;
+  /** The mobile (or, on legacy records, the LINE ID). */
   identityValue: string | null;
+  /** The guest's 姓名; null on legacy records. */
+  identityName: string | null;
   identityKey: string | null;
   claimedAt: string | null;
   avatarRequestedAt: string | null;
@@ -42,6 +45,24 @@ function identityDoc(identityKey: string) {
   return db.collection("identities").doc(identityKey);
 }
 
+/** Storage paths under identities/ embed the guest's mobile; keep it out of logs. */
+function redactPath(objectPath: string) {
+  return objectPath.replace(/mobile_\d+/g, "mobile_***");
+}
+
+/**
+ * A Storage ApiError carries the request (whose URL names the object, and
+ * so the mobile). Log only its redacted message and code, never the object.
+ */
+export function redactError(error: unknown) {
+  const message = error instanceof Error ? error.message : String(error);
+  const code = (error as { code?: unknown } | null)?.code;
+  return {
+    message: redactPath(message).replace(/mobile_?(%5F)?09\d{8}|09\d{8}/gi, "***"),
+    ...(code !== undefined ? { code } : {}),
+  };
+}
+
 async function uploadBytes(
   objectPath: string,
   bytes: Buffer,
@@ -59,7 +80,10 @@ async function uploadBytes(
     });
     return objectPath;
   } catch (error) {
-    console.error(`Firebase Storage upload failed for ${objectPath}:`, error);
+    console.error(
+      `Firebase Storage upload failed for ${redactPath(objectPath)}:`,
+      redactError(error),
+    );
     return null;
   }
 }
@@ -76,9 +100,7 @@ export async function archiveSessionCreated(session: ImageSession, input: {
     input.mime,
   );
   const identity = session.identity;
-  const identityKey = identity
-    ? identityStorageKey({ kind: identity.kind, value: identity.value })
-    : null;
+  const identityKey = identity ? identityStorageKey(identity) : null;
   const identityInputPath = identityKey
     ? await uploadBytes(
         `identities/${identityKey}/${session.id}/input`,
@@ -100,8 +122,9 @@ export async function archiveSessionCreated(session: ImageSession, input: {
     resultMime: session.resultMime ?? null,
     source: session.source ?? null,
     generationOptions: session.generationOptions ?? null,
-    identityKind: identity?.kind ?? null,
-    identityValue: identity?.value ?? null,
+    identityKind: identity ? "mobile" : null,
+    identityValue: identity?.mobile ?? null,
+    identityName: identity?.name ?? null,
     identityKey,
     claimedAt: identity?.claimedAt ?? null,
     avatarRequestedAt: null,
@@ -124,8 +147,9 @@ export async function archiveSessionCreated(session: ImageSession, input: {
       (previous?.data()?.sessionIds as string[] | undefined) ?? [];
     await ref?.set(
       {
-        kind: identity.kind,
-        value: identity.value,
+        kind: "mobile",
+        value: identity.mobile,
+        name: identity.name,
         updatedAt: now,
         sessionIds: Array.from(new Set([...previousIds, session.id])),
       },
@@ -183,70 +207,21 @@ export async function archiveSessionStatus(
   );
 }
 
-export async function claimSessionIdentity(
-  session: ImageSession,
-  identity: GuestIdentity,
-  images: {
-    input: { bytes: Buffer; mime: string };
-    result: { bytes: Buffer; mime: string } | null;
-  },
-) {
-  if (!isFirebaseConfigured()) {
-    throw new Error("尚未設定 Firebase，無法保存身分資料。");
+/**
+ * Admin label for an archived identity: "姓名｜手機" for current records, or
+ * the legacy "kind:value" form (LINE ID / mobile only), which the dashboard
+ * localizes.
+ */
+export function archiveIdentityLabel(record: {
+  identityKind?: string | null;
+  identityValue?: string | null;
+  identityName?: string | null;
+}) {
+  if (!record.identityKind || !record.identityValue) return null;
+  if (record.identityName) {
+    return `${record.identityName}｜${record.identityValue}`;
   }
-
-  const key = identityStorageKey(identity);
-  const claimedAt = new Date().toISOString();
-  const identityRef = identityDoc(key);
-  if (!identityRef) {
-    throw new Error("尚未設定 Firebase，無法保存身分資料。");
-  }
-
-  const identityInputPath = await uploadBytes(
-    `identities/${key}/${session.id}/input`,
-    images.input.bytes,
-    images.input.mime,
-  );
-
-  let identityResultPath: string | null = null;
-  if (images.result) {
-    identityResultPath = await uploadBytes(
-      `identities/${key}/${session.id}/result`,
-      images.result.bytes,
-      images.result.mime,
-    );
-  }
-
-  await sessionDoc(session.id)?.set(
-    {
-      identityKind: identity.kind,
-      identityValue: identity.value,
-      identityKey: key,
-      claimedAt,
-      updatedAt: claimedAt,
-      status: session.status,
-      error: session.error ?? null,
-      storage: {
-        identityInputPath,
-        identityResultPath,
-      },
-    },
-    { merge: true },
-  );
-
-  const previous = await identityRef.get();
-  const previousIds = (previous.data()?.sessionIds as string[] | undefined) ?? [];
-  await identityRef.set(
-    {
-      kind: identity.kind,
-      value: identity.value,
-      updatedAt: claimedAt,
-      sessionIds: Array.from(new Set([...previousIds, session.id])),
-    },
-    { merge: true },
-  );
-
-  return { identityKey: key, claimedAt };
+  return `${record.identityKind}:${record.identityValue}`;
 }
 
 export async function markAvatarRequest(
@@ -288,7 +263,10 @@ export async function readArchiveImage(objectPath: string): Promise<{
         : "application/octet-stream";
     return { bytes: Buffer.from(bytes), mime };
   } catch (error) {
-    console.error(`Firebase Storage download failed for ${objectPath}:`, error);
+    console.error(
+      `Firebase Storage download failed for ${redactPath(objectPath)}:`,
+      redactError(error),
+    );
     return null;
   }
 }

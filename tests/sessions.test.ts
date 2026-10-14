@@ -283,7 +283,7 @@ describe("publicSession", () => {
       "expiresAt",
       "generationOptions",
       "id",
-      "identity",
+      "identityClaimed",
       "inputUrl",
       "resultUrl",
       "startedAt",

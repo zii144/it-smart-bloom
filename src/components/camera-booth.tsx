@@ -16,7 +16,14 @@ import {
   requestUserCamera,
   writeCameraPreference,
 } from "@/lib/camera-access";
-import { isValidLineId, normalizeLineId } from "@/lib/guest-identity";
+import {
+  MOBILE_ERROR,
+  NAME_ERROR,
+  isValidMobile,
+  isValidName,
+  normalizeMobile,
+  normalizeName,
+} from "@/lib/guest-identity";
 import type { ImageGenerationOptions } from "@/lib/image-options";
 import { buildLineShareUrl } from "@/lib/line-share";
 
@@ -155,7 +162,12 @@ export function CameraBooth({
   // so hint it early instead of waiting for the stylesheet to discover it.
   preload("/images/watercolor/invitation-paper.webp", { as: "image" });
   const [step, setStep] = useState<BoothStep>("invitation");
-  const [lineId, setLineId] = useState("");
+  const [guestName, setGuestName] = useState("");
+  const [guestMobile, setGuestMobile] = useState("");
+  /** Which identity field the current error belongs to, for aria-invalid. */
+  const [identityField, setIdentityField] = useState<
+    "name" | "mobile" | null
+  >(null);
   const [photo, setPhoto] = useState<Blob | null>(null);
   const [photoSource, setPhotoSource] = useState<PhotoSource | null>(null);
   const [previewUrl, setPreviewUrl] = useState<string | null>(null);
@@ -168,7 +180,8 @@ export function CameraBooth({
   const [cameras, setCameras] = useState<CameraOption[]>([]);
   const [currentCameraId, setCurrentCameraId] = useState<string | null>(null);
   const [streamEpoch, setStreamEpoch] = useState(0);
-  const lineIdInputRef = useRef<HTMLInputElement>(null);
+  const nameInputRef = useRef<HTMLInputElement>(null);
+  const mobileInputRef = useRef<HTMLInputElement>(null);
   const uploadInputRef = useRef<HTMLInputElement>(null);
   const guestEntryHeadingRef = useRef<HTMLHeadingElement>(null);
   const introHeadingRef = useRef<HTMLHeadingElement>(null);
@@ -368,8 +381,10 @@ export function CameraBooth({
     try {
       const formData = new FormData();
       formData.set("image", photo, "portrait.jpg");
-      if (lineId.trim()) {
-        formData.set("lineId", normalizeLineId(lineId));
+      // Both fields were validated before the guest could reach this step.
+      if (guestName.trim() && guestMobile.trim()) {
+        formData.set("name", normalizeName(guestName));
+        formData.set("mobile", normalizeMobile(guestMobile));
       }
       const optionsToStore = options ?? tuningOptions;
       if (optionsToStore) {
@@ -411,15 +426,26 @@ export function CameraBooth({
     );
   }
 
-  function validateLineId() {
-    const normalized = normalizeLineId(lineId);
-    if (!isValidLineId(normalized)) {
-      setError("LINE ID 格式需為「數字-姓名-地區」，例如 112-張小明-南投縣。");
-      window.requestAnimationFrame(() => lineIdInputRef.current?.focus());
-      return null;
+  /** Checks 姓名 then 手機, focusing the first field that needs fixing. */
+  function validateIdentity() {
+    const name = normalizeName(guestName);
+    if (!isValidName(name)) {
+      setError(NAME_ERROR);
+      setIdentityField("name");
+      window.requestAnimationFrame(() => nameInputRef.current?.focus());
+      return false;
     }
-    setLineId(normalized);
-    return normalized;
+    const mobile = normalizeMobile(guestMobile);
+    if (!isValidMobile(mobile)) {
+      setError(MOBILE_ERROR);
+      setIdentityField("mobile");
+      window.requestAnimationFrame(() => mobileInputRef.current?.focus());
+      return false;
+    }
+    setGuestName(name);
+    setGuestMobile(mobile);
+    setIdentityField(null);
+    return true;
   }
 
   function selectUploadedPhoto(file: File | undefined) {
@@ -444,7 +470,7 @@ export function CameraBooth({
   }
 
   function reviewUpload() {
-    if (!validateLineId()) return;
+    if (!validateIdentity()) return;
     if (!photo || photoSource !== "upload") {
       setError("請選擇一張想要創作的照片。");
       uploadInputRef.current?.focus();
@@ -455,7 +481,7 @@ export function CameraBooth({
   }
 
   function continueWithCamera() {
-    if (!validateLineId()) return;
+    if (!validateIdentity()) return;
     setError(null);
     setStep("intro");
     window.requestAnimationFrame(() =>
@@ -564,14 +590,14 @@ export function CameraBooth({
                 留下名字，選一張喜歡的自己。
               </h1>
               <p>
-                填寫路老師通用 LINE ID，再上傳一張清楚的正面照片，
+                填寫姓名與手機，再上傳一張清楚的正面照片，
                 我們會把一路走來的光，畫成你的專屬水彩似顏繪。
               </p>
               <div className="guest-entry-note">
                 <span aria-hidden="true">01</span>
                 <p>
-                  <strong>LINE ID 會與作品一同保存</strong>
-                  方便日後在路老師系統中找到這次創作。
+                  <strong>姓名與手機會與作品一同保存</strong>
+                  與路老師系統登記的資料相同，就能一鍵換成你的大頭貼。
                 </p>
               </div>
             </div>
@@ -589,40 +615,79 @@ export function CameraBooth({
                 <p>兩個步驟，就可以開始創作。</p>
               </div>
 
-              <label className="guest-entry-field" htmlFor="guest-line-id">
+              <div className="guest-entry-identity">
+              <label className="guest-entry-field" htmlFor="guest-name">
                 <span>
-                  路老師通用 LINE ID
+                  姓名
                   <b>必填</b>
                 </span>
                 <input
-                  ref={lineIdInputRef}
-                  id="guest-line-id"
-                  name="lineId"
+                  ref={nameInputRef}
+                  id="guest-name"
+                  name="name"
                   type="text"
-                  value={lineId}
+                  value={guestName}
                   onChange={(event) => {
-                    setLineId(event.target.value);
-                    setError(null);
+                    setGuestName(event.target.value);
+                    if (identityField === "name") {
+                      setError(null);
+                      setIdentityField(null);
+                    }
+                  }}
+                  onBlur={() => {
+                    if (guestName.trim() && !isValidName(normalizeName(guestName))) {
+                      setError(NAME_ERROR);
+                      setIdentityField("name");
+                    }
+                  }}
+                  placeholder="例如：張小明"
+                  autoComplete="name"
+                  maxLength={40}
+                  aria-describedby="guest-name-help"
+                  aria-invalid={identityField === "name" || undefined}
+                  required
+                />
+                <small id="guest-name-help">與路老師系統登記的姓名相同</small>
+              </label>
+
+              <label className="guest-entry-field" htmlFor="guest-mobile">
+                <span>
+                  手機號碼
+                  <b>必填</b>
+                </span>
+                <input
+                  ref={mobileInputRef}
+                  id="guest-mobile"
+                  name="mobile"
+                  type="tel"
+                  inputMode="tel"
+                  value={guestMobile}
+                  onChange={(event) => {
+                    setGuestMobile(event.target.value);
+                    if (identityField === "mobile") {
+                      setError(null);
+                      setIdentityField(null);
+                    }
                   }}
                   onBlur={() => {
                     if (
-                      lineId.trim() &&
-                      !isValidLineId(normalizeLineId(lineId))
+                      guestMobile.trim() &&
+                      !isValidMobile(normalizeMobile(guestMobile))
                     ) {
-                      setError(
-                        "LINE ID 格式需為「數字-姓名-地區」，例如 112-張小明-南投縣。",
-                      );
+                      setError(MOBILE_ERROR);
+                      setIdentityField("mobile");
                     }
                   }}
-                  placeholder="例如：112-張小明-南投縣"
-                  autoComplete="off"
-                  spellCheck={false}
-                  aria-describedby="guest-line-id-help"
-                  aria-invalid={error?.includes("LINE ID") || undefined}
+                  placeholder="例如：0912345678"
+                  autoComplete="tel-national"
+                  maxLength={20}
+                  aria-describedby="guest-mobile-help"
+                  aria-invalid={identityField === "mobile" || undefined}
                   required
                 />
-                <small id="guest-line-id-help">格式：數字－姓名－地區</small>
+                <small id="guest-mobile-help">與路老師系統登記的手機相同</small>
               </label>
+              </div>
 
               <label
                 className={`guest-upload-field ${
