@@ -104,6 +104,47 @@ numbers per name per client in 10 minutes. There is also a 200-failure
 ceiling per client, kept high because every guest at the booth shares one
 network address.
 
+### Booth photo
+
+Guests upload a photo after entering 姓名 + 手機. The on-site camera
+option (改用現場相機) is off. A staffed kiosk can turn it back on with
+`<CameraBooth cameraOption />`.
+
+### Success card (`/success/[id]`)
+
+After a guest confirms their photo, the booth goes to `/success/[session]`.
+This is an invitation-style card that greets the guest by roster name,
+confirms the photo was received, and shows their 座位 and the event details.
+Its QR code (and a tappable link) always opens the event rundown on Google
+Drive (`EVENT_RUNDOWN_URL` in `src/lib/event-info.ts`). **The portrait is not
+handed out here.** A missing or expired session gets a friendly card instead
+of an error.
+
+### Event-day check-in (`/check-in`)
+
+Guests check in on their own phone (put a QR to `/check-in` at the
+entrance) with the same 姓名 + 手機 match as the booth. They get a joyful
+報到成功 card with their seat. Checking in again shows the original time.
+
+- **Portrait handover.** A valid check-in is what earns the portrait. If it
+  is finished, the card shows it with a 儲存作品 download, served by
+  `GET /api/check-in/portrait/[token]`. The token is random, stored on the
+  roster entry, and valid for 7 days. It is replaced on each check-in and
+  revoked when staff undo the check-in. This works long after the session's
+  15-minute link has expired; the image comes from Firebase Storage. A
+  portrait still being painted shows 再看一次, which re-checks without
+  retyping.
+- Check-in is closed until an admin turns it on in **報到管理** (stored in
+  `rosterMeta/checkIn`). While closed, the page shows the event details.
+- The **報到管理** tab shows arrivals vs total and the arrival rate, filters
+  (全部 / 已報到 / 未報到), search, manual check-in and two-step undo, each
+  guest's portrait status, and a CSV export (UTF-8 with BOM, safe from
+  spreadsheet formulas). It refreshes every 10 seconds while the tab is open
+  and the window is visible. Staff never receive guests' portrait tokens.
+- Arrival (`checkedInAt`, `checkInSource`), the latest portrait
+  (`portraitStatus`) and the portrait token are stored on the guest's
+  `roster` entry. Imports and admin edits never overwrite them.
+
 Store integration tests run against a dedicated emulator on port 8181, so
 they never touch the dev emulator's data:
 
