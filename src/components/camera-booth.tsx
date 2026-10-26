@@ -166,6 +166,7 @@ export function CameraBooth({
   const [invalidField, setInvalidField] = useState<"name" | "phone" | null>(
     null,
   );
+  const [checkingGuest, setCheckingGuest] = useState(false);
   const [photo, setPhoto] = useState<Blob | null>(null);
   const [photoSource, setPhotoSource] = useState<PhotoSource | null>(null);
   const [previewUrl, setPreviewUrl] = useState<string | null>(null);
@@ -404,9 +405,11 @@ export function CameraBooth({
 
     try {
       const formData = new FormData();
-      // 姓名 / 電話 stay on the booth for now; they are not sent until the
-      // guest-identity pipeline exists.
       formData.set("image", photo, "portrait.jpg");
+      // The server re-checks the roster; the earlier verify call is only a
+      // friendlier, earlier answer for the guest.
+      formData.set("name", guestName);
+      formData.set("phone", guestPhone);
       const optionsToStore = options ?? tuningOptions;
       if (optionsToStore) {
         formData.set("imageOptions", JSON.stringify(optionsToStore));
@@ -453,19 +456,42 @@ export function CameraBooth({
       setError("請填寫姓名（最多 30 字）。");
       setInvalidField("name");
       window.requestAnimationFrame(() => nameInputRef.current?.focus());
-      return false;
+      return null;
     }
     const phone = normalizeMobile(guestPhone);
     if (!isValidMobile(phone)) {
       setError("電話號碼需為 09 開頭的 10 碼手機號碼，例如 0912345678。");
       setInvalidField("phone");
       window.requestAnimationFrame(() => phoneInputRef.current?.focus());
-      return false;
+      return null;
     }
     setGuestName(name);
     setGuestPhone(phone);
     setInvalidField(null);
-    return true;
+    return { name, phone };
+  }
+
+  async function confirmGuestOnRoster(details: { name: string; phone: string }) {
+    setCheckingGuest(true);
+    try {
+      const response = await fetch("/api/roster/verify", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(details),
+      });
+      if (response.ok) return true;
+      const payload = (await response.json().catch(() => null)) as {
+        error?: string;
+      } | null;
+      setError(payload?.error || "暫時無法確認報名資料，請稍後再試。");
+      window.requestAnimationFrame(() => nameInputRef.current?.focus());
+      return false;
+    } catch {
+      setError("網路連線不穩，請稍後再試一次。");
+      return false;
+    } finally {
+      setCheckingGuest(false);
+    }
   }
 
   function selectUploadedPhoto(file: File | undefined) {
@@ -489,19 +515,25 @@ export function CameraBooth({
     setError(null);
   }
 
-  function reviewUpload() {
-    if (!validateGuestDetails()) return;
+  async function reviewUpload() {
+    if (checkingGuest) return;
+    const details = validateGuestDetails();
+    if (!details) return;
     if (!photo || photoSource !== "upload") {
       setError("請選擇一張想要創作的照片。");
       uploadInputRef.current?.focus();
       return;
     }
+    if (!(await confirmGuestOnRoster(details))) return;
     setError(null);
     setStep("preview");
   }
 
-  function continueWithCamera() {
-    if (!validateGuestDetails()) return;
+  async function continueWithCamera() {
+    if (checkingGuest) return;
+    const details = validateGuestDetails();
+    if (!details) return;
+    if (!(await confirmGuestOnRoster(details))) return;
     setError(null);
     setStep("intro");
     window.requestAnimationFrame(() =>
@@ -616,8 +648,8 @@ export function CameraBooth({
               <div className="guest-entry-note">
                 <span aria-hidden="true">01</span>
                 <p>
-                  <strong>請填寫本人姓名與電話</strong>
-                  方便日後找到這次創作。
+                  <strong>請填寫報名時的姓名與手機</strong>
+                  我們會核對成果展名單，確認後即可開始創作。
                 </p>
               </div>
             </div>
@@ -626,7 +658,7 @@ export function CameraBooth({
               className="guest-entry-form"
               onSubmit={(event) => {
                 event.preventDefault();
-                reviewUpload();
+                void reviewUpload();
               }}
             >
               <div className="guest-entry-form-heading">
@@ -740,8 +772,13 @@ export function CameraBooth({
                 </p>
               )}
 
-              <button type="submit" className="primary-button guest-entry-submit">
-                預覽我的照片
+              <button
+                type="submit"
+                className="primary-button guest-entry-submit"
+                disabled={checkingGuest}
+                aria-busy={checkingGuest || undefined}
+              >
+                {checkingGuest ? "確認報名資料中…" : "預覽我的照片"}
                 <span className="button-arrow">
                   <ArrowIcon />
                 </span>
@@ -749,7 +786,8 @@ export function CameraBooth({
               <button
                 type="button"
                 className="secondary-button guest-camera-option"
-                onClick={continueWithCamera}
+                onClick={() => void continueWithCamera()}
+                disabled={checkingGuest}
               >
                 <CameraIcon />
                 改用現場相機

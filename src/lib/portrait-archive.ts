@@ -16,6 +16,7 @@ export type ArchiveRecord = {
   resultMime: string | null;
   source: ImageSession["source"] | null;
   generationOptions: ImageSession["generationOptions"] | null;
+  rosterEntryId: string | null;
   identityKind: GuestIdentity["kind"] | null;
   identityValue: string | null;
   identityKey: string | null;
@@ -102,6 +103,7 @@ export async function archiveSessionCreated(session: ImageSession, input: {
     resultMime: session.resultMime ?? null,
     source: session.source ?? null,
     generationOptions: session.generationOptions ?? null,
+    rosterEntryId: session.rosterEntryId ?? null,
     identityKind: identity?.kind ?? null,
     identityValue: identity?.value ?? null,
     identityKey,

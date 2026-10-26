@@ -7,6 +7,8 @@ import {
   resolveImageOptions,
 } from "@/lib/image-options";
 import { archiveSessionCreated } from "@/lib/portrait-archive";
+import { GuestRosterError, matchGuestOnRoster } from "@/lib/roster-guest";
+import { RosterUnavailableError } from "@/lib/roster-store";
 import { isImageTuningEnabled } from "@/lib/runtime-env";
 import {
   createSession,
@@ -32,6 +34,13 @@ export async function POST(request: Request) {
       return Response.json({ error: "請提供一張照片。" }, { status: 400 });
     }
 
+    // Only guests on the roster get a portrait. Checked here, not just in the
+    // booth UI, so calling the API directly cannot skip it.
+    const { rosterEntryId } = await matchGuestOnRoster(request, {
+      name: formData.get("name"),
+      phone: formData.get("phone"),
+    });
+
     const tuningEnabled = isImageTuningEnabled();
     let generationOptions = undefined;
     if (tuningEnabled) {
@@ -49,7 +58,9 @@ export async function POST(request: Request) {
       }
     }
 
-    const session = await createSession(image, generationOptions);
+    const session = await createSession(image, generationOptions, undefined, {
+      rosterEntryId,
+    });
 
     // Persist to Firestore/Storage before the response so other serverless
     // instances (phone poll / image fetch) can find the session. `/tmp` is
@@ -106,6 +117,12 @@ export async function POST(request: Request) {
       },
     );
   } catch (error) {
+    if (error instanceof GuestRosterError) {
+      return Response.json({ error: error.message }, { status: error.status });
+    }
+    if (error instanceof RosterUnavailableError) {
+      return Response.json({ error: error.message }, { status: 503 });
+    }
     if (error instanceof SessionError) {
       return Response.json({ error: error.message }, { status: error.status });
     }
