@@ -2,17 +2,12 @@ import { describe, expect, it } from "vitest";
 import {
   IdentityError,
   identityStorageKey,
+  isValidGuestName,
+  normalizeGuestName,
   parseGuestIdentity,
 } from "@/lib/guest-identity";
 
 describe("parseGuestIdentity", () => {
-  it("accepts a road-teacher Line ID", () => {
-    expect(parseGuestIdentity({ lineId: "112-張小明-南投縣" })).toEqual({
-      kind: "lineId",
-      value: "112-張小明-南投縣",
-    });
-  });
-
   it("accepts a Taiwan mobile number", () => {
     expect(parseGuestIdentity({ mobile: "0912-345-678" })).toEqual({
       kind: "mobile",
@@ -20,18 +15,14 @@ describe("parseGuestIdentity", () => {
     });
   });
 
-  it("rejects filling both fields", () => {
+  it("no longer accepts a LINE ID", () => {
     expect(() =>
-      parseGuestIdentity({ lineId: "112-張小明-南投縣", mobile: "0912345678" }),
+      parseGuestIdentity({ lineId: "112-張小明-南投縣" } as never),
     ).toThrow(IdentityError);
   });
 
   it("rejects an empty submission", () => {
     expect(() => parseGuestIdentity({})).toThrow(/請填寫/);
-  });
-
-  it("rejects a malformed Line ID", () => {
-    expect(() => parseGuestIdentity({ lineId: "張小明" })).toThrow(/格式/);
   });
 
   it("rejects a non-Taiwan mobile", () => {
@@ -41,8 +32,21 @@ describe("parseGuestIdentity", () => {
   });
 
   it("builds a stable storage key", () => {
-    expect(
-      identityStorageKey({ kind: "lineId", value: "112-張小明-南投縣" }),
-    ).toBe("lineId_112-張小明-南投縣");
+    expect(identityStorageKey({ kind: "mobile", value: "0912345678" })).toBe(
+      "mobile_0912345678",
+    );
+  });
+});
+
+describe("guest name", () => {
+  it("trims and collapses whitespace", () => {
+    expect(normalizeGuestName("  張  小明 ")).toBe("張 小明");
+  });
+
+  it("requires 1 to 30 characters", () => {
+    expect(isValidGuestName("")).toBe(false);
+    expect(isValidGuestName("張小明")).toBe(true);
+    expect(isValidGuestName("張".repeat(30))).toBe(true);
+    expect(isValidGuestName("張".repeat(31))).toBe(false);
   });
 });

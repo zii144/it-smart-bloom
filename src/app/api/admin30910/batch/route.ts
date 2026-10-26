@@ -33,7 +33,6 @@ export async function POST(request: Request) {
   const auth = resolveAdminAuth({
     cookieToken: readCookie(request, ADMIN_COOKIE_NAME),
     authorization: request.headers.get("authorization"),
-    key: new URL(request.url).searchParams.get("key"),
   });
 
   if (!auth.ok) {

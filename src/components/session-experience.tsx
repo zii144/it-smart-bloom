@@ -10,6 +10,7 @@ import {
   buildFacebookShareUrl,
 } from "@/lib/facebook-share";
 import type { ImageGenerationOptions } from "@/lib/image-options";
+import { isRoadTeacherAvatarUiEnabled } from "@/lib/road-teacher-flags";
 
 function FacebookIcon() {
   return (
@@ -30,8 +31,11 @@ type SessionStatus = {
   expiresAt: string;
   inputUrl: string;
   resultUrl: string | null;
+  resultMime?: string | null;
   error: string | null;
   generationOptions?: ImageGenerationOptions | null;
+  generationAttempts?: number;
+  generationLimit?: number;
 };
 
 /** Measured end-to-end render time for gpt-image-2 medium, paces the bar. */
@@ -41,10 +45,25 @@ const AUTOSTART_GRACE_MS = 6_000;
 /** Comfortably past a normal render, so a retry only appears on a real stall. */
 const STALL_AFTER_MS = 240_000;
 const POLL_INTERVAL_MS = 2_000;
+const POLL_INTERVAL_SLOW_MS = 3_500;
+const POLL_INTERVAL_SLOWER_MS = 5_000;
 /** Slower retry while the network is unreachable. */
 const OFFLINE_RETRY_MS = 3_000;
 /** How long to keep saying "connecting" before calling it a failure. */
 const CONNECT_TIMEOUT_MS = 12_000;
+
+function pollDelayMs(createdAt: string, now = Date.now()) {
+  const elapsed = now - Date.parse(createdAt);
+  if (elapsed > 60_000) return POLL_INTERVAL_SLOWER_MS;
+  if (elapsed > 30_000) return POLL_INTERVAL_SLOW_MS;
+  return POLL_INTERVAL_MS;
+}
+
+function downloadFilename(mime: string | null | undefined) {
+  const extension =
+    mime === "image/png" ? "png" : mime === "image/webp" ? "webp" : "jpg";
+  return `zhisheng-bloom-portrait.${extension}`;
+}
 
 const STAGE_HINTS: { until: number; label: string }[] = [
   { until: 12_000, label: "正在準備你的照片…" },
@@ -215,7 +234,7 @@ export function SessionExperience({
         void kickGenerate(next.generationOptions ?? null, false);
       }
 
-      schedulePoll(POLL_INTERVAL_MS);
+      schedulePoll(pollDelayMs(next.createdAt));
     }
 
     async function kickGenerate(
@@ -274,7 +293,7 @@ export function SessionExperience({
         setShowSettings(true);
       }
 
-      schedulePoll(POLL_INTERVAL_MS);
+      schedulePoll(pollDelayMs(current.createdAt));
     }
 
     // Phones throttle timers the moment the guest locks the screen or switches
@@ -407,7 +426,11 @@ export function SessionExperience({
             <div className="mobile-title">
               <p className="eyebrow">路老師似顏繪</p>
               <h1>一路走來的光，已然綻放。</h1>
-              <p>儲存、分享，或一鍵套用到路老師系統大頭貼。</p>
+              <p>
+                {isRoadTeacherAvatarUiEnabled()
+                  ? "儲存、分享，或一鍵套用到路老師系統大頭貼。"
+                  : "請下載或分享你的專屬人像。此連結約 15 分鐘後失效。"}
+              </p>
             </div>
             {session.generationOptions?.fakeGenerate && (
               <p className="demo-mode-banner" role="status">
@@ -428,7 +451,7 @@ export function SessionExperience({
               <a
                 className="primary-button mobile-download"
                 href={`${session.resultUrl}&download=1`}
-                download="zhisheng-bloom-portrait.jpg"
+                download={downloadFilename(session.resultMime)}
               >
                 下載我的專屬人像
               </a>
@@ -451,24 +474,26 @@ export function SessionExperience({
               </button>
             </div>
 
-            <div className="avatar-cta">
-              <button
-                type="button"
-                className="primary-button avatar-button"
-                onClick={() => {
-                  setAvatarMessage(null);
-                  setShowRtLogin(true);
-                }}
-              >
-                一鍵替換成路老師系統大頭貼
-              </button>
-              <p className="avatar-hint">
-                需登入路老師系統帳號，確認由本人替換。
-              </p>
-              {avatarMessage && (
-                <p className="avatar-message">{avatarMessage}</p>
-              )}
-            </div>
+            {isRoadTeacherAvatarUiEnabled() && (
+              <div className="avatar-cta">
+                <button
+                  type="button"
+                  className="primary-button avatar-button"
+                  onClick={() => {
+                    setAvatarMessage(null);
+                    setShowRtLogin(true);
+                  }}
+                >
+                  一鍵替換成路老師系統大頭貼
+                </button>
+                <p className="avatar-hint">
+                  需登入路老師系統帳號，確認由本人替換。
+                </p>
+                {avatarMessage && (
+                  <p className="avatar-message">{avatarMessage}</p>
+                )}
+              </div>
+            )}
 
             {tuningEnabled && (
               <button

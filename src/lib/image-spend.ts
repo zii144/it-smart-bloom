@@ -184,20 +184,13 @@ export async function readSpendSnapshot(now = new Date()): Promise<SpendSnapshot
   return { ...usage, limits: spendLimits() };
 }
 
-/**
- * Throws when today's ceiling is already reached. Called before the OpenAI
- * request, so the check is on spend already committed, not this render.
- */
-export async function assertSpendAllowed(
-  scope: SpendScope,
-  now = new Date(),
-): Promise<void> {
-  const limits = spendLimits();
-  if (!limits.dailyLimit && !limits.dailyBudgetUsd) return;
-  if (limits.enforce !== "all" && scope !== "batch") return;
+function shouldEnforceSpend(scope: SpendScope, limits: SpendLimits) {
+  if (!limits.dailyLimit && !limits.dailyBudgetUsd) return false;
+  if (limits.enforce !== "all" && scope !== "batch") return false;
+  return true;
+}
 
-  const usage = await readSpendUsage(now);
-
+function assertWithinCeiling(usage: SpendUsage, limits: SpendLimits) {
   if (limits.dailyLimit && usage.count >= limits.dailyLimit) {
     throw new SpendLimitError(
       `今日生成已達上限（${limits.dailyLimit} 張），請調整 IMAGE_DAILY_LIMIT 或明天再試。`,
@@ -211,10 +204,100 @@ export async function assertSpendAllowed(
   }
 }
 
+function rememberLocalSpend(
+  date: string,
+  cost: number,
+  now: Date,
+  next: { count: number; costUsd: number },
+) {
+  fallbackUsage.set(date, { count: next.count, costUsd: next.costUsd });
+  cache = {
+    date,
+    count: next.count,
+    costUsd: next.costUsd,
+    fetchedAt: now.getTime(),
+  };
+}
+
 /**
- * Counts one billable render. Recorded on attempt rather than on success: the
- * charge follows the request, and over-counting a failed call is the safer
- * error for a spend brake.
+ * Throws when today's ceiling is already reached. Read-only preflight for the
+ * batch panel; generation itself uses `reserveSpend` so check + count are one
+ * atomic step when Firestore is available.
+ */
+export async function assertSpendAllowed(
+  scope: SpendScope,
+  now = new Date(),
+): Promise<void> {
+  const limits = spendLimits();
+  if (!shouldEnforceSpend(scope, limits)) return;
+  assertWithinCeiling(await readSpendUsage(now), limits);
+}
+
+/**
+ * Atomically reserves one billable render against today's ceiling, then
+ * records it. Prefer this over assert + record on the OpenAI path.
+ */
+export async function reserveSpend(
+  scope: SpendScope,
+  options?: ImageGenerationOptions | null,
+  now = new Date(),
+): Promise<SpendUsage> {
+  const limits = spendLimits();
+  const enforce = shouldEnforceSpend(scope, limits);
+  const date = spendDateKey(now);
+  const cost = unitCostUsd(options) ?? 0;
+  const doc = usageDoc(date);
+
+  if (doc) {
+    try {
+      const reserved = await doc.firestore.runTransaction(async (tx) => {
+        const snap = await tx.get(doc);
+        const data = snap.data() as
+          | { count?: number; costUsd?: number }
+          | undefined;
+        const current = {
+          count: Number(data?.count) || 0,
+          costUsd: Number(data?.costUsd) || 0,
+        };
+        if (enforce) assertWithinCeiling({ date, ...current }, limits);
+
+        const next = {
+          count: current.count + 1,
+          costUsd: current.costUsd + cost,
+        };
+        tx.set(
+          doc,
+          {
+            date,
+            count: next.count,
+            costUsd: next.costUsd,
+            updatedAt: now.toISOString(),
+          },
+          { merge: true },
+        );
+        return next;
+      });
+
+      rememberLocalSpend(date, cost, now, reserved);
+      return { date, count: reserved.count, costUsd: reserved.costUsd };
+    } catch (error) {
+      if (error instanceof SpendLimitError) throw error;
+      console.error("[spend] transactional reserve failed:", error);
+      // Fall through to the in-process counter so a Firestore blip does not
+      // open an unmetered window on this isolate.
+    }
+  }
+
+  const local = fallbackUsage.get(date) ?? { count: 0, costUsd: 0 };
+  if (enforce) assertWithinCeiling({ date, ...local }, limits);
+  const next = { count: local.count + 1, costUsd: local.costUsd + cost };
+  rememberLocalSpend(date, cost, now, next);
+  return { date, count: next.count, costUsd: next.costUsd };
+}
+
+/**
+ * Counts one billable render without applying the ceiling. Prefer
+ * `reserveSpend` on generation paths that must enforce the daily limit.
  */
 export async function recordSpend(
   options?: ImageGenerationOptions | null,
@@ -222,13 +305,8 @@ export async function recordSpend(
 ): Promise<SpendUsage> {
   const date = spendDateKey(now);
   const cost = unitCostUsd(options) ?? 0;
-
-  const local = fallbackUsage.get(date) ?? { count: 0, costUsd: 0 };
-  local.count += 1;
-  local.costUsd += cost;
-  fallbackUsage.set(date, local);
-
   const doc = usageDoc(date);
+
   if (doc) {
     try {
       await doc.set(
@@ -245,18 +323,8 @@ export async function recordSpend(
     }
   }
 
-  // Keep our own write visible for the rest of the cache window instead of
-  // re-reading; a batch would otherwise under-count until the TTL expires.
-  const base =
-    cache && cache.date === date
-      ? cache
-      : { date, count: local.count - 1, costUsd: local.costUsd - cost, fetchedAt: now.getTime() };
-  cache = {
-    date,
-    count: base.count + 1,
-    costUsd: base.costUsd + cost,
-    fetchedAt: base.fetchedAt,
-  };
-
-  return { date, count: cache.count, costUsd: cache.costUsd };
+  const local = fallbackUsage.get(date) ?? { count: 0, costUsd: 0 };
+  const next = { count: local.count + 1, costUsd: local.costUsd + cost };
+  rememberLocalSpend(date, cost, now, next);
+  return { date, count: next.count, costUsd: next.costUsd };
 }

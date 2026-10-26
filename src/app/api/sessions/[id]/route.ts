@@ -1,4 +1,9 @@
-import { getSession, publicSession, SessionError } from "@/lib/sessions";
+import {
+  assertSessionNotExpired,
+  getSession,
+  publicSession,
+  SessionError,
+} from "@/lib/sessions";
 
 export const runtime = "nodejs";
 
@@ -9,6 +14,7 @@ export async function GET(
   try {
     const { id } = await params;
     const session = await getSession(id);
+    assertSessionNotExpired(session);
     return Response.json(publicSession(session), {
       headers: { "Cache-Control": "no-store" },
     });

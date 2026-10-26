@@ -152,14 +152,14 @@ describe("SessionExperience — guest journey", () => {
     expect(
       screen.getByRole("button", { name: "分享到臉書" }),
     ).toBeDefined();
-    // The avatar CTA is available without any sign-in: auth is never a gate
-    // on seeing or saving the portrait.
+    // Avatar replacement stays hidden until the RT mock/bridge is enabled.
     expect(
-      screen.getByRole("button", { name: "一鍵替換成路老師系統大頭貼" }),
-    ).toBeDefined();
+      screen.queryByRole("button", { name: "一鍵替換成路老師系統大頭貼" }),
+    ).toBeNull();
   });
 
   it("opens the road-teacher login sheet only when the guest asks", async () => {
+    process.env.NEXT_PUBLIC_RT_MOCK = "true";
     mockFetch({
       status: () =>
         sessionPayload({

@@ -53,11 +53,17 @@ function enterBooth(container: HTMLElement) {
   fireEvent.click(invitationButton);
 }
 
+function fillGuestDetails(container: HTMLElement) {
+  const name = container.querySelector<HTMLInputElement>("#guest-name");
+  const phone = container.querySelector<HTMLInputElement>("#guest-phone");
+  if (!name || !phone) throw new Error("guest detail inputs not rendered");
+  fireEvent.change(name, { target: { value: "張小明" } });
+  fireEvent.change(phone, { target: { value: "0912-345-678" } });
+}
+
 function enterCameraBooth(container: HTMLElement) {
   enterBooth(container);
-  const lineId = container.querySelector<HTMLInputElement>("#guest-line-id");
-  if (!lineId) throw new Error("LINE ID input not rendered");
-  fireEvent.change(lineId, { target: { value: "112-張小明-南投縣" } });
+  fillGuestDetails(container);
 
   const cameraButton = [...container.querySelectorAll("button")].find(
     (button) => button.textContent?.includes("改用現場相機"),
@@ -93,7 +99,7 @@ afterEach(() => {
 });
 
 describe("CameraBooth stream attachment", () => {
-  it("opens the LINE ID and image upload form from the invitation", () => {
+  it("opens the name, phone and image upload form from the invitation", () => {
     const { container } = render(<CameraBooth />);
 
     // The invitation is shown first: its title is artwork, so assert the
@@ -106,18 +112,36 @@ describe("CameraBooth stream attachment", () => {
 
     enterBooth(container);
 
-    expect(container.textContent).toContain("路老師通用 LINE ID");
+    expect(container.textContent).not.toContain("LINE ID");
+    expect(container.querySelector("#guest-name")).toBeTruthy();
+    expect(container.querySelector("#guest-phone")).toBeTruthy();
     expect(container.querySelector('input[type="file"]')).toBeTruthy();
     expect(container.textContent).toContain("改用現場相機");
   });
 
-  it("previews a valid uploaded image after collecting the LINE ID", () => {
+  it("asks for a valid phone number before previewing", () => {
     const { container } = render(<CameraBooth />);
     enterBooth(container);
 
-    fireEvent.change(container.querySelector("#guest-line-id")!, {
-      target: { value: "112-張小明-南投縣" },
+    fireEvent.change(container.querySelector("#guest-name")!, {
+      target: { value: "張小明" },
     });
+    fireEvent.change(container.querySelector("#guest-phone")!, {
+      target: { value: "12345" },
+    });
+    fireEvent.click(container.querySelector("button.guest-entry-submit")!);
+
+    expect(container.querySelector('[role="alert"]')?.textContent).toContain(
+      "電話號碼",
+    );
+    expect(container.textContent).not.toContain("就選這張嗎");
+  });
+
+  it("previews a valid uploaded image after collecting name and phone", () => {
+    const { container } = render(<CameraBooth />);
+    enterBooth(container);
+
+    fillGuestDetails(container);
     fireEvent.change(container.querySelector('input[type="file"]')!, {
       target: {
         files: [

@@ -7,6 +7,7 @@ import {
   readArchiveRecord,
 } from "@/lib/portrait-archive";
 import {
+  extensionForMime,
   readInputImage,
   readResultImage,
   SessionError,
@@ -30,15 +31,17 @@ function imageResponse(
   mime: string,
   kind: "input" | "result",
 ) {
+  const extension = extensionForMime(mime);
+  const filename =
+    kind === "result"
+      ? `zhisheng-bloom-portrait.${extension}`
+      : `source-photo.${extension}`;
   return new Response(new Uint8Array(bytes), {
     headers: {
       "Content-Type": mime,
       "Content-Length": String(bytes.byteLength),
       "Cache-Control": "private, no-store",
-      "Content-Disposition":
-        kind === "result"
-          ? 'inline; filename="zhisheng-bloom-portrait.jpg"'
-          : 'inline; filename="source-photo"',
+      "Content-Disposition": `inline; filename="${filename}"`,
       "X-Content-Type-Options": "nosniff",
     },
   });
@@ -51,7 +54,6 @@ export async function GET(
   const auth = resolveAdminAuth({
     cookieToken: readCookie(request, ADMIN_COOKIE_NAME),
     authorization: request.headers.get("authorization"),
-    key: new URL(request.url).searchParams.get("key"),
   });
 
   if (!auth.ok) {

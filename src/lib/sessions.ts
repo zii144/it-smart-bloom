@@ -14,6 +14,12 @@ import type { ImageGenerationOptions } from "@/lib/image-options";
 
 export const SESSION_TTL_MS = 15 * 60 * 1000;
 export const MAX_UPLOAD_BYTES = 12 * 1024 * 1024;
+/** Guest link: first render + one deliberate retry. */
+export const MAX_GUEST_GENERATIONS = 2;
+/** Admin batch may re-run a slot a few times while tuning. */
+export const MAX_BATCH_GENERATIONS = 5;
+/** After this, a stuck `generating` session may be taken over. */
+export const GENERATION_LEASE_MS = 5 * 60 * 1000;
 
 const SESSION_ID_PATTERN = /^[A-Za-z0-9_-]{32}$/;
 const SUPPORTED_IMAGE_TYPES = new Set([
@@ -37,6 +43,8 @@ export type ImageSession = {
   error?: string;
   source?: SessionSource;
   generationStartedAt?: string;
+  /** Billable (or fake) generation starts counted against the per-session cap. */
+  generationAttempts?: number;
   generationOptions?: ImageGenerationOptions;
   identity?: {
     kind: "lineId" | "mobile";
@@ -52,8 +60,10 @@ function sessionsRoot() {
 
   // Vercel / Lambda only allow writes under /tmp. Creating `.data` under
   // `/var/task` fails with ENOENT and was returning 500 on POST /api/sessions.
+  // Always use a POSIX path here: production is Linux, and `path.join("/tmp", …)`
+  // on Windows becomes `\tmp\…`, which breaks tests and would be wrong on Vercel.
   if (process.env.VERCEL || process.env.AWS_LAMBDA_FUNCTION_NAME) {
-    return path.join("/tmp", "bloom-sessions");
+    return "/tmp/bloom-sessions";
   }
 
   return path.join(process.cwd(), ".data", "sessions");
@@ -110,6 +120,7 @@ function sessionFromArchive(record: {
   createdAt: string;
   expiresAt?: string | null;
   generationStartedAt?: string | null;
+  generationAttempts?: number | null;
   error?: string | null;
   inputMime: string;
   resultMime?: string | null;
@@ -134,6 +145,12 @@ function sessionFromArchive(record: {
   if (record.source) session.source = record.source;
   if (record.generationStartedAt) {
     session.generationStartedAt = record.generationStartedAt;
+  }
+  if (
+    typeof record.generationAttempts === "number" &&
+    Number.isFinite(record.generationAttempts)
+  ) {
+    session.generationAttempts = record.generationAttempts;
   }
   if (record.generationOptions) {
     session.generationOptions = record.generationOptions;
@@ -200,6 +217,54 @@ export class SessionError extends Error {
     super(message);
     this.name = "SessionError";
   }
+}
+
+export function isSessionExpired(session: ImageSession, now = Date.now()) {
+  const expiresAt = Date.parse(session.expiresAt);
+  return Number.isFinite(expiresAt) && expiresAt <= now;
+}
+
+/** Guest-facing routes call this after load; admin tools may skip it. */
+export function assertSessionNotExpired(
+  session: ImageSession,
+  now = Date.now(),
+) {
+  if (isSessionExpired(session, now)) {
+    throw new SessionError(
+      "這個創作連結已過期，請回到拍照裝置重新開始。",
+      410,
+    );
+  }
+}
+
+export function maxGenerationsFor(session: ImageSession) {
+  return session.source === "admin-batch"
+    ? MAX_BATCH_GENERATIONS
+    : MAX_GUEST_GENERATIONS;
+}
+
+export function isGenerationLeaseActive(
+  session: ImageSession,
+  now = Date.now(),
+) {
+  if (session.status !== "generating" || !session.generationStartedAt) {
+    return false;
+  }
+  const startedAt = Date.parse(session.generationStartedAt);
+  if (!Number.isFinite(startedAt)) return false;
+  return now - startedAt < GENERATION_LEASE_MS;
+}
+
+export function extensionForMime(mime: string) {
+  if (mime === "image/png") return "png";
+  if (mime === "image/webp") return "webp";
+  return "jpg";
+}
+
+/** Best-effort removal after a failed durable archive in production. */
+export async function deleteSession(id: string) {
+  assertSessionId(id);
+  await rm(sessionDirectory(id), { recursive: true, force: true });
 }
 
 export async function createSession(
@@ -417,8 +482,8 @@ export async function listLocalSessions({ limit = 50 }: { limit?: number } = {})
 }
 
 /**
- * Photos are archived to Firebase for the long term. Local disk cleanup is no
- * longer tied to a 15-minute guest promise; keep this helper for ops scripts.
+ * Drops expired local session directories. Guest APIs enforce `expiresAt`
+ * independently; Firebase archive retention is a separate ops concern.
  */
 export async function purgeExpiredSessions(now = Date.now()) {
   const root = sessionsRoot();
@@ -471,17 +536,14 @@ export function publicSession(session: ImageSession) {
       session.status === "complete"
         ? `/api/sessions/${session.id}/image?kind=result`
         : null,
+    resultMime:
+      session.status === "complete" ? (session.resultMime ?? null) : null,
     error:
       session.status === "failed"
         ? "無法完成這次創作，請回到拍照裝置後再試一次。"
         : null,
     generationOptions: session.generationOptions ?? null,
-    identity: session.identity
-      ? {
-          kind: session.identity.kind,
-          value: session.identity.value,
-          claimedAt: session.identity.claimedAt,
-        }
-      : null,
+    generationAttempts: session.generationAttempts ?? 0,
+    generationLimit: maxGenerationsFor(session),
   };
 }

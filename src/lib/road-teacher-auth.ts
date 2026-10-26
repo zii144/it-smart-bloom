@@ -14,6 +14,14 @@
  * See docs/road-teacher-auth-plan.md §4 Phase 2 for the real implementation.
  */
 
+import { isRoadTeacherMockEnabled } from "@/lib/road-teacher-flags";
+
+export {
+  isLegacyIdentityClaimEnabled,
+  isRoadTeacherAvatarUiEnabled,
+  isRoadTeacherMockEnabled,
+} from "@/lib/road-teacher-flags";
+
 const DEFAULT_MOCK_DELAY_MS = 700;
 
 /** Firebase-shaped auth error so the mock exercises the same mapping. */
@@ -25,11 +33,6 @@ export class RoadTeacherAuthError extends Error {
     this.name = "RoadTeacherAuthError";
     this.code = code;
   }
-}
-
-export function isRoadTeacherMockEnabled() {
-  const flag = process.env.NEXT_PUBLIC_RT_MOCK?.trim().toLowerCase();
-  return flag === "1" || flag === "true" || flag === "yes";
 }
 
 /** Tests set NEXT_PUBLIC_RT_MOCK_DELAY_MS=0, mirroring FAKE_GENERATE_DELAY_MS. */

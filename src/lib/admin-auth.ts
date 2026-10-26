@@ -93,12 +93,14 @@ export type AdminAuthResult =
   | { ok: false; reason: "disabled" | "unauthorized" };
 
 /**
- * Resolve admin access from cookie, Basic auth, or an explicit key
- * (query/body). Does not set cookies — callers do that after a key login.
+ * Resolve admin access from cookie, Basic auth, or a POST body key.
+ * Query-string keys are intentionally unsupported — they leak via history,
+ * referrers, and access logs.
  */
 export function resolveAdminAuth(input: {
   cookieToken?: string | null;
   authorization?: string | null;
+  /** Only from POST body / form fields — never from a URL query string. */
   key?: string | null;
 }): AdminAuthResult {
   if (!isAdminDashboardEnabled()) {

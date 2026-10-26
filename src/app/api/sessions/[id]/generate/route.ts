@@ -1,7 +1,13 @@
 import { generateImage } from "@/lib/generate-image";
 import { parseImageOverrides } from "@/lib/image-options";
+import { SpendLimitError } from "@/lib/image-spend";
 import { isImageTuningEnabled } from "@/lib/runtime-env";
-import { getSession, publicSession, SessionError } from "@/lib/sessions";
+import {
+  assertSessionNotExpired,
+  getSession,
+  publicSession,
+  SessionError,
+} from "@/lib/sessions";
 
 export const runtime = "nodejs";
 export const maxDuration = 180;
@@ -13,6 +19,7 @@ export async function POST(
   try {
     const { id } = await params;
     const existing = await getSession(id);
+    assertSessionNotExpired(existing);
     const tuningEnabled = isImageTuningEnabled();
 
     let overrides = null;
@@ -51,6 +58,10 @@ export async function POST(
     });
   } catch (error) {
     if (error instanceof SessionError) {
+      return Response.json({ error: error.message }, { status: error.status });
+    }
+
+    if (error instanceof SpendLimitError) {
       return Response.json({ error: error.message }, { status: error.status });
     }
 

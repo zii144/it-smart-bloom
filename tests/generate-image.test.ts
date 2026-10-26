@@ -151,14 +151,16 @@ describe("generateImage — failures", () => {
   });
 
   it.each(["OPENAI_API_KEY", "OPENAI_IMAGE_SYSTEM_PROMPT"])(
-    "fails clearly when %s is missing",
+    "fails clearly when %s is missing without burning the session",
     async (key) => {
       delete process.env[key];
       const session = await createSession(imageFile());
 
       await expect(generateImage(session.id)).rejects.toThrow(key);
       expect(editMock).not.toHaveBeenCalled();
-      expect((await getSession(session.id)).status).toBe("failed");
+      // Config errors happen before markGenerating / spend reservation.
+      expect((await getSession(session.id)).status).toBe("ready");
+      expect((await getSession(session.id)).generationAttempts ?? 0).toBe(0);
     },
   );
 
@@ -176,14 +178,27 @@ describe("generateImage — failures", () => {
     );
   });
 
-  it("still renders a session after the old TTL stamp has passed", async () => {
+  it("refuses to render after the guest TTL has passed", async () => {
     const session = await createSession(imageFile());
     await patchMetadata(session.id, {
       expiresAt: new Date(Date.now() - 1000).toISOString(),
     });
 
+    await expect(generateImage(session.id)).rejects.toMatchObject({
+      status: 410,
+    });
+    expect(editMock).not.toHaveBeenCalled();
+  });
+
+  it("caps forced re-renders per guest session", async () => {
+    const session = await createSession(imageFile());
     await generateImage(session.id);
-    expect((await getSession(session.id)).status).toBe("complete");
+    await generateImage(session.id, null, true);
+
+    await expect(generateImage(session.id, null, true)).rejects.toMatchObject({
+      status: 429,
+    });
+    expect(editMock).toHaveBeenCalledTimes(2);
   });
 });
 

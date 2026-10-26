@@ -116,13 +116,29 @@ describe("getSession", () => {
     },
   );
 
-  it("still serves a session after the old TTL stamp has passed", async () => {
+  it("still loads expired metadata for admin/ops paths", async () => {
     const created = await createSession(imageFile());
     await patchMetadata(created.id, { expiresAt: expiredAt() });
 
     await expect(getSession(created.id)).resolves.toMatchObject({
       id: created.id,
     });
+  });
+});
+
+describe("assertSessionNotExpired", () => {
+  it("rejects guest access after expiresAt", async () => {
+    const { assertSessionNotExpired } = await import("@/lib/sessions");
+    const created = await createSession(imageFile());
+    await patchMetadata(created.id, { expiresAt: expiredAt() });
+    const session = await getSession(created.id);
+
+    try {
+      assertSessionNotExpired(session);
+      expect.unreachable("expired session should throw");
+    } catch (error) {
+      expect(error).toMatchObject({ status: 410 });
+    }
   });
 });
 
@@ -281,10 +297,12 @@ describe("publicSession", () => {
       "createdAt",
       "error",
       "expiresAt",
+      "generationAttempts",
+      "generationLimit",
       "generationOptions",
       "id",
-      "identity",
       "inputUrl",
+      "resultMime",
       "resultUrl",
       "startedAt",
       "status",

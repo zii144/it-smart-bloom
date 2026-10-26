@@ -10,6 +10,7 @@ export type ArchiveRecord = {
   expiresAt: string | null;
   updatedAt: string;
   generationStartedAt: string | null;
+  generationAttempts: number | null;
   error: string | null;
   inputMime: string;
   resultMime: string | null;
@@ -95,6 +96,7 @@ export async function archiveSessionCreated(session: ImageSession, input: {
     expiresAt: session.expiresAt,
     updatedAt: now,
     generationStartedAt: session.generationStartedAt ?? null,
+    generationAttempts: session.generationAttempts ?? 0,
     error: session.error ?? null,
     inputMime: session.inputMime,
     resultMime: session.resultMime ?? null,
@@ -169,6 +171,7 @@ export async function archiveSessionStatus(
       expiresAt: session.expiresAt,
       updatedAt: new Date().toISOString(),
       generationStartedAt: session.generationStartedAt ?? null,
+      generationAttempts: session.generationAttempts ?? 0,
       error: session.error ?? null,
       resultMime: session.resultMime ?? result?.mime ?? null,
       generationOptions: session.generationOptions ?? null,
