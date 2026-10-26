@@ -30,7 +30,7 @@ export async function POST(
 
     if (!session.identity) {
       return Response.json(
-        { error: "請先填寫路老師通用 Line ID 或手機號碼。" },
+        { error: "請先填寫手機號碼。" },
         { status: 400 },
       );
     }

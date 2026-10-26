@@ -21,15 +21,15 @@ async function flushAfterCallbacks() {
 function createRequest(
   file = imageFile(),
   imageOptions?: string,
-  lineId?: string,
+  extraFields: Record<string, string> = {},
 ) {
   const body = new FormData();
   body.set("image", file);
   if (imageOptions !== undefined) {
     body.set("imageOptions", imageOptions);
   }
-  if (lineId !== undefined) {
-    body.set("lineId", lineId);
+  for (const [key, value] of Object.entries(extraFields)) {
+    body.set(key, value);
   }
   return new Request("http://booth.local/api/sessions", {
     method: "POST",
@@ -59,33 +59,21 @@ describe("POST /api/sessions", () => {
     });
   });
 
-  it("stores a validated LINE ID with an uploaded portrait", async () => {
+  it("ignores guest identity fields and keeps the uploaded portrait", async () => {
     const response = await POST(
-      createRequest(imageFile(), undefined, "112-張小明-南投縣"),
+      createRequest(imageFile(), undefined, {
+        lineId: "112-張小明-南投縣",
+        name: "張小明",
+        phone: "0912345678",
+      }),
     );
     const payload = await response.json();
 
     expect(response.status).toBe(201);
-    expect(payload.identity).toMatchObject({
-      kind: "lineId",
-      value: "112-張小明-南投縣",
-    });
-    await expect(getSession(payload.id)).resolves.toMatchObject({
-      identity: {
-        kind: "lineId",
-        value: "112-張小明-南投縣",
-      },
-    });
-  });
-
-  it("rejects an invalid LINE ID before creating the portrait", async () => {
-    const response = await POST(
-      createRequest(imageFile(), undefined, "張小明"),
-    );
-
-    expect(response.status).toBe(400);
-    expect(await response.json()).toMatchObject({ error: expect.any(String) });
-    expect(afterMock).not.toHaveBeenCalled();
+    expect(payload).not.toHaveProperty("identity");
+    const session = await getSession(payload.id);
+    expect(session.identity).toBeUndefined();
+    expect(session.status).toBe("ready");
   });
 
   it("builds the share link from APP_BASE_URL when configured", async () => {
