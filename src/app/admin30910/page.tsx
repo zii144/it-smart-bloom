@@ -1,5 +1,5 @@
 import { cookies, headers } from "next/headers";
-import { notFound, redirect } from "next/navigation";
+import { notFound } from "next/navigation";
 import type { Metadata } from "next";
 import {
   AdminDashboard,
@@ -22,10 +22,6 @@ export const dynamic = "force-dynamic";
 export const metadata: Metadata = {
   title: "Admin",
   robots: { index: false, follow: false },
-};
-
-type PageProps = {
-  searchParams: Promise<{ key?: string }>;
 };
 
 async function loadDashboard(): Promise<AdminDashboardPayload> {
@@ -81,26 +77,17 @@ async function loadDashboard(): Promise<AdminDashboardPayload> {
   };
 }
 
-export default async function AdminPage({ searchParams }: PageProps) {
-  const params = await searchParams;
+export default async function AdminPage() {
   const jar = await cookies();
   const requestHeaders = await headers();
 
   const auth = resolveAdminAuth({
     cookieToken: jar.get(ADMIN_COOKIE_NAME)?.value,
     authorization: requestHeaders.get("authorization"),
-    key: params.key ?? null,
   });
 
   if (!auth.ok && auth.reason === "disabled") {
     notFound();
-  }
-
-  // Exchange ?key= for a cookie without leaving the secret in the address bar.
-  if (auth.ok && auth.via === "key" && params.key) {
-    redirect(
-      `/api/admin30910/login?key=${encodeURIComponent(params.key)}`,
-    );
   }
 
   if (!auth.ok) {

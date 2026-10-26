@@ -1,6 +1,8 @@
 import { markAvatarRequest } from "@/lib/portrait-archive";
+import { isLegacyIdentityClaimEnabled } from "@/lib/road-teacher-flags";
 import { requestRoadTeacherAvatar } from "@/lib/road-teacher-avatar";
 import {
+  assertSessionNotExpired,
   getSession,
   publicSession,
   readResultImage,
@@ -15,8 +17,16 @@ export async function POST(
   { params }: { params: Promise<{ id: string }> },
 ) {
   try {
+    if (!isLegacyIdentityClaimEnabled()) {
+      return Response.json(
+        { error: "此大頭貼替換方式已停用，請使用路老師帳號登入。" },
+        { status: 410 },
+      );
+    }
+
     const { id } = await params;
     const session = await getSession(id);
+    assertSessionNotExpired(session);
 
     if (!session.identity) {
       return Response.json(

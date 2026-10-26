@@ -1,5 +1,6 @@
 import { after } from "next/server";
 import QRCode from "qrcode";
+import { isFirebaseConfigured } from "@/lib/firebase-admin";
 import { generateImage } from "@/lib/generate-image";
 import {
   IdentityError,
@@ -14,7 +15,9 @@ import { archiveSessionCreated } from "@/lib/portrait-archive";
 import { isImageTuningEnabled } from "@/lib/runtime-env";
 import {
   createSession,
+  deleteSession,
   publicSession,
+  purgeExpiredSessions,
   readInputImage,
   SessionError,
 } from "@/lib/sessions";
@@ -24,6 +27,9 @@ export const maxDuration = 300;
 
 export async function POST(request: Request) {
   try {
+    // Opportunistic local cleanup; failures must never block a new booth session.
+    void purgeExpiredSessions().catch(() => {});
+
     const formData = await request.formData();
     const image = formData.get("image");
 
@@ -68,8 +74,12 @@ export async function POST(request: Request) {
       await archiveSessionCreated(session, input);
     } catch (error) {
       console.error("Failed to archive session:", error);
-      // Still return the booth session when local disk succeeded; generation
-      // may keep working on this isolate. Phone recovery needs Firebase though.
+      // When Firebase is configured, a usable QR without an archive is a lie —
+      // the phone will 404 on another isolate. Fail closed and drop the local copy.
+      if (isFirebaseConfigured()) {
+        await deleteSession(session.id).catch(() => {});
+        throw new SessionError("無法保存創作空間，請稍後再試。", 503);
+      }
     }
 
     // The phone is only a viewer: start rendering as soon as the photo exists so

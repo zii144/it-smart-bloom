@@ -44,10 +44,9 @@ async function establishSession(request: Request, key: string | null) {
   return response;
 }
 
-/** `GET /api/admin30910/login?key=…` — sets cookie and redirects to the dashboard. */
+/** Cookie / Basic exchange only — query-string secrets are rejected. */
 export async function GET(request: Request) {
-  const key = new URL(request.url).searchParams.get("key");
-  return establishSession(request, key);
+  return establishSession(request, null);
 }
 
 /** `POST /api/admin30910/login` with form/JSON field `key`, or Basic auth. */

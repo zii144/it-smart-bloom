@@ -1,6 +1,8 @@
 import { IdentityError, parseGuestIdentity } from "@/lib/guest-identity";
 import { claimSessionIdentity } from "@/lib/portrait-archive";
+import { isLegacyIdentityClaimEnabled } from "@/lib/road-teacher-flags";
 import {
+  assertSessionNotExpired,
   getSession,
   publicSession,
   readInputImage,
@@ -16,8 +18,16 @@ export async function POST(
   { params }: { params: Promise<{ id: string }> },
 ) {
   try {
+    if (!isLegacyIdentityClaimEnabled()) {
+      return Response.json(
+        { error: "此身分認領方式已停用，請使用路老師帳號登入。" },
+        { status: 410 },
+      );
+    }
+
     const { id } = await params;
     const session = await getSession(id);
+    assertSessionNotExpired(session);
     const body = (await request.json().catch(() => null)) as Record<
       string,
       unknown

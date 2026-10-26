@@ -23,6 +23,7 @@ import { buildLineShareUrl } from "@/lib/line-share";
 type SessionPayload = {
   id: string;
   status: "ready" | "generating" | "complete" | "failed";
+  createdAt: string;
   expiresAt: string;
   inputUrl: string;
   resultUrl: string | null;
@@ -209,28 +210,54 @@ export function CameraBooth({
   useEffect(() => {
     if (!session || step !== "sharing") return;
 
-    const poll = window.setInterval(async () => {
+    let active = true;
+    let timer: number | undefined;
+    const createdAt = session.createdAt;
+
+    function delayFor(status: SessionPayload["status"]) {
+      if (status === "complete" || status === "failed") return null;
+      const elapsed = Date.now() - Date.parse(createdAt);
+      if (elapsed > 60_000) return 5_000;
+      if (elapsed > 30_000) return 3_500;
+      return 2_000;
+    }
+
+    async function poll() {
       try {
-        const response = await fetch(`/api/sessions/${session.id}`, {
+        const response = await fetch(`/api/sessions/${session!.id}`, {
           cache: "no-store",
         });
-        if (!response.ok) return;
+        if (!active) return;
+        if (!response.ok) {
+          timer = window.setTimeout(() => void poll(), 3_000);
+          return;
+        }
         const next = (await response.json()) as SessionPayload;
         setSession((current) => (current ? { ...current, ...next } : current));
 
         if (next.status === "failed") {
           setError(next.error || "人像生成失敗，請再試一次。");
         }
-        // Stay on the QR screen after complete so the guest can still scan /
-        // open LINE. Fake generate finishes in ~1s; auto-returning home was
-        // wiping the link before demos (and fast real renders) could finish.
-      } catch {
-        // A transient polling failure should not interrupt the session.
-      }
-    }, 2000);
 
-    return () => window.clearInterval(poll);
-  }, [session, step]);
+        // Stay on the QR screen after complete so the guest can still scan /
+        // open LINE. Stop polling once the portrait settles.
+        const nextDelay = delayFor(next.status);
+        if (nextDelay !== null) {
+          timer = window.setTimeout(() => void poll(), nextDelay);
+        }
+      } catch {
+        if (active) {
+          timer = window.setTimeout(() => void poll(), 3_000);
+        }
+      }
+    }
+
+    timer = window.setTimeout(() => void poll(), 2_000);
+    return () => {
+      active = false;
+      if (timer) window.clearTimeout(timer);
+    };
+  }, [session?.id, session?.createdAt, step]);
 
   async function openCamera() {
     setError(null);
@@ -858,7 +885,9 @@ export function CameraBooth({
             <div className="stage-heading">
               <p className="eyebrow">很好看</p>
               <h1>就選這張嗎？</h1>
-              <p>確認後會產生私人手機連結，人像會保存於路老師系統。</p>
+              <p>
+                確認後會產生約 15 分鐘有效的手機連結；創作中的照片會暫存在本服務以便生成人像。
+              </p>
             </div>
             <div className="review-image">
               <Image

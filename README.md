@@ -66,17 +66,32 @@ Set a server-only secret (required; the page 404s when unset):
 ADMIN_DASHBOARD_SECRET=choose-a-long-random-string
 ```
 
-Sign in with the password form, `?key=…` (exchanged for an httpOnly cookie), or HTTP Basic user `admin`. Shows Firebase/emulator health plus recent Firestore archive and local disk sessions.
+Sign in with the password form (POST) or HTTP Basic user `admin`. Query-string
+`?key=` login is not supported. Shows Firebase/emulator health plus recent
+Firestore archive and local disk sessions.
 
 The **批次生成** tab renders a stack of photos in one go, using
 `OPENAI_IMAGE_SYSTEM_PROMPT` and the same model/quality/size defaults as the
 booth.
 
+### Session guest access
+
+Guest session URLs expire after 15 minutes (`expiresAt`). Status, image, and
+generate routes return `410` afterwards. Each booth session may start at most
+two generations (first render + one retry). Local expired directories are purged
+opportunistically when new sessions are created; Firebase archive retention is
+separate.
+
+Road-teacher avatar replacement UI is shown only when `NEXT_PUBLIC_RT_MOCK=true`
+(dev). Legacy LINE/mobile claim endpoints stay off unless
+`ALLOW_LEGACY_IDENTITY_CLAIM=true`.
+
 ### Daily spend ceiling
 
 Every guard in the batch panel is client-side. These env vars are the
-server-side one, checked before each OpenAI call and counted in Firestore
-(`usage/YYYY-MM-DD`, Taiwan time). All are optional; unset means no ceiling.
+server-side one: generation atomically reserves a slot in Firestore
+(`usage/YYYY-MM-DD`, Taiwan time) before calling OpenAI. All are optional;
+unset means no ceiling.
 
 ```dotenv
 IMAGE_DAILY_LIMIT=200            # images per day

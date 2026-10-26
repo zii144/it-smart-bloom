@@ -1,4 +1,7 @@
 import {
+  assertSessionNotExpired,
+  extensionForMime,
+  getSession,
   readInputImage,
   readResultImage,
   SessionError,
@@ -12,7 +15,9 @@ export async function GET(
 ) {
   try {
     const { id } = await params;
-    const kind = new URL(request.url).searchParams.get("kind");
+    const url = new URL(request.url);
+    const kind = url.searchParams.get("kind");
+    const asDownload = url.searchParams.get("download") === "1";
 
     if (kind !== "input" && kind !== "result") {
       return Response.json(
@@ -21,18 +26,23 @@ export async function GET(
       );
     }
 
+    const session = await getSession(id);
+    assertSessionNotExpired(session);
+
     const image =
       kind === "input" ? await readInputImage(id) : await readResultImage(id);
+    const extension = extensionForMime(image.mime);
+    const filename =
+      kind === "result"
+        ? `zhisheng-bloom-portrait.${extension}`
+        : `source-photo.${extension}`;
 
     return new Response(new Uint8Array(image.bytes), {
       headers: {
         "Content-Type": image.mime,
         "Content-Length": String(image.bytes.byteLength),
         "Cache-Control": "private, no-store",
-        "Content-Disposition":
-          kind === "result"
-            ? 'inline; filename="zhisheng-bloom-portrait.jpg"'
-            : 'inline; filename="source-photo"',
+        "Content-Disposition": `${asDownload ? "attachment" : "inline"}; filename="${filename}"`,
         "X-Content-Type-Options": "nosniff",
       },
     });

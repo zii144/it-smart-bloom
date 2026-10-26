@@ -4,6 +4,7 @@ import {
   assertSpendAllowed,
   readSpendUsage,
   recordSpend,
+  reserveSpend,
   resetSpendCache,
   spendDateKey,
   spendLimits,
@@ -187,6 +188,22 @@ describe("assertSpendAllowed", () => {
     await expect(
       assertSpendAllowed("batch", tomorrow),
     ).resolves.toBeUndefined();
+  });
+});
+
+describe("reserveSpend", () => {
+  it("checks and counts in one step", async () => {
+    process.env.IMAGE_DAILY_LIMIT = "2";
+
+    await expect(
+      reserveSpend("batch", defaultImageOptions()),
+    ).resolves.toMatchObject({ count: 1 });
+    await expect(
+      reserveSpend("batch", defaultImageOptions()),
+    ).resolves.toMatchObject({ count: 2 });
+    await expect(reserveSpend("batch", defaultImageOptions())).rejects.toBeInstanceOf(
+      SpendLimitError,
+    );
   });
 });
 

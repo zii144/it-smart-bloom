@@ -7,14 +7,19 @@ import {
   resolveImageOptions,
   type ImageGenerationOverrides,
 } from "@/lib/image-options";
-import { assertSpendAllowed, recordSpend } from "@/lib/image-spend";
+import { reserveSpend } from "@/lib/image-spend";
 import { archiveSessionStatus } from "@/lib/portrait-archive";
 import { isImageTuningEnabled } from "@/lib/runtime-env";
 import {
+  assertSessionNotExpired,
   getSession,
+  isGenerationLeaseActive,
+  maxGenerationsFor,
   readInputImage,
+  SessionError,
   updateSession,
   writeResultImage,
+  type ImageSession,
 } from "@/lib/sessions";
 
 const activeGenerations = new Map<string, Promise<void>>();
@@ -80,16 +85,21 @@ async function loadFakeResult(id: string) {
   };
 }
 
-async function markGenerating(id: string) {
-  const session = await updateSession(id, {
+async function markGenerating(id: string, incrementAttempts: boolean) {
+  const session = await getSession(id);
+  const nextAttempts = incrementAttempts
+    ? (session.generationAttempts ?? 0) + 1
+    : (session.generationAttempts ?? 0);
+  const updated = await updateSession(id, {
     status: "generating",
     error: undefined,
     generationStartedAt: new Date().toISOString(),
+    generationAttempts: nextAttempts,
   });
-  await archiveSessionStatus(session).catch((error) => {
+  await archiveSessionStatus(updated).catch((error) => {
     console.error(`Failed to archive generating status for ${id}:`, error);
   });
-  return session;
+  return updated;
 }
 
 async function markFailed(id: string, error: unknown) {
@@ -132,9 +142,6 @@ async function runOpenAiGeneration(
         ? "webp"
         : "jpg";
 
-  // Counted before the call: this is the moment the money is committed.
-  await recordSpend(settings);
-
   const response = await client.images.edit({
     model: settings.model,
     image: await toFile(input.bytes, `portrait.${extension}`, {
@@ -162,13 +169,32 @@ async function runOpenAiGeneration(
   });
 }
 
+function assertGenerationBudget(session: ImageSession) {
+  const attempts = session.generationAttempts ?? 0;
+  const limit = maxGenerationsFor(session);
+  if (attempts >= limit) {
+    throw new SessionError(
+      `此創作空間已達生成次數上限（${limit} 次）。`,
+      429,
+    );
+  }
+}
+
 async function performGeneration(
   id: string,
   overrides?: ImageGenerationOverrides | null,
   force = false,
 ) {
   const session = await getSession(id);
+  assertSessionNotExpired(session);
+
   if (session.status === "complete" && !force) {
+    return;
+  }
+
+  // Another isolate already owns a fresh lease — do not start a second billable
+  // job. Same-isolate callers join via `activeGenerations` before this runs.
+  if (isGenerationLeaseActive(session)) {
     return;
   }
 
@@ -179,16 +205,28 @@ async function performGeneration(
     throw new Error("假生成僅能在開發或 Preview 環境使用。");
   }
 
+  // Forced re-render of a complete portrait, or any new attempt, burns a slot.
+  // Taking over a stale `generating` lease reuses the attempt already counted.
+  const reuseStaleAttempt =
+    session.status === "generating" && !isGenerationLeaseActive(session);
+  if (!reuseStaleAttempt) {
+    assertGenerationBudget(session);
+  }
+
   // Same reason: a session refused by the daily ceiling stays ready, so the
   // admin can run it tomorrow without it looking like a failed render. Fake
-  // generation costs nothing and is never gated.
-  if (!settings.fakeGenerate) {
-    await assertSpendAllowed(
+  // generation costs nothing and is never gated. A stale-lease takeover already
+  // reserved spend for that attempt. Validate credentials before reserving so
+  // a missing env var does not burn a daily slot.
+  if (!settings.fakeGenerate && !reuseStaleAttempt) {
+    openaiCredentials();
+    await reserveSpend(
       session.source === "admin-batch" ? "batch" : "booth",
+      settings,
     );
   }
 
-  await markGenerating(id);
+  await markGenerating(id, !reuseStaleAttempt);
 
   try {
     if (settings.fakeGenerate) {

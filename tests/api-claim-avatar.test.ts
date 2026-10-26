@@ -25,6 +25,7 @@ vi.mock("@/lib/portrait-archive", () => ({
 }));
 
 beforeEach(() => {
+  process.env.ALLOW_LEGACY_IDENTITY_CLAIM = "true";
   requestAvatarMock.mockReset();
   requestAvatarMock.mockResolvedValue({ ok: true });
 });
@@ -44,14 +45,25 @@ describe("POST /api/sessions/[id]/claim", () => {
     );
 
     expect(response.status).toBe(200);
-    const payload = await response.json();
-    expect(payload.identity).toMatchObject({
-      kind: "lineId",
-      value: "112-張小明-南投縣",
-    });
+    // Guest JSON no longer echoes the identifier; only the server session keeps it.
+    expect(await response.json()).not.toHaveProperty("identity");
     expect((await getSession(session.id)).identity?.value).toBe(
       "112-張小明-南投縣",
     );
+  });
+
+  it("is disabled unless ALLOW_LEGACY_IDENTITY_CLAIM is set", async () => {
+    delete process.env.ALLOW_LEGACY_IDENTITY_CLAIM;
+    const session = await createSession(imageFile());
+    const response = await postClaim(
+      new Request("http://phone.local", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ lineId: "112-張小明-南投縣" }),
+      }),
+      routeContext(session.id),
+    );
+    expect(response.status).toBe(410);
   });
 
   it("rejects filling both fields", async () => {
