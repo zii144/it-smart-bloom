@@ -4,22 +4,30 @@ import { rosterErrorResponse, rosterJson } from "@/lib/roster-http";
 import {
   createRosterEntry,
   listRosterEntries,
+  readCheckInSettings,
   readLastImport,
 } from "@/lib/roster-store";
 
 export const runtime = "nodejs";
 
-/** `GET /api/admin30910/roster` — every entry plus the last import summary. */
+/** `GET /api/admin30910/roster` — every entry, the last import and check-in state. */
 export async function GET(request: Request) {
   const denied = adminRouteGuard(request);
   if (denied) return denied;
 
   try {
-    const [entries, lastImport] = await Promise.all([
+    const [entries, lastImport, checkIn] = await Promise.all([
       listRosterEntries(),
       readLastImport(),
+      readCheckInSettings(),
     ]);
-    return rosterJson({ entries, lastImport });
+    // Portrait links belong to the guest who checked in; staff never need them.
+    const safeEntries = entries.map((entry) => ({
+      ...entry,
+      portraitAccessToken: undefined,
+      portraitAccessExpiresAt: undefined,
+    }));
+    return rosterJson({ entries: safeEntries, lastImport, checkIn });
   } catch (error) {
     return rosterErrorResponse(error, "list roster");
   }

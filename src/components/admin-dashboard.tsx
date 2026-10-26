@@ -2,8 +2,10 @@
 
 import { useCallback, useEffect, useState, type ReactNode } from "react";
 import { AdminBatchPanel } from "@/components/admin-batch-panel";
+import { AdminCheckInPanel } from "@/components/admin-check-in-panel";
 import { AdminRosterPanel } from "@/components/admin-roster-panel";
 import { BloomMark } from "@/components/brand";
+import { formatTaipeiShort } from "@/lib/event-info";
 import type { ImageGenerationOptions } from "@/lib/image-options";
 import type { RosterEntry } from "@/lib/roster";
 import type { SpendSnapshot } from "@/lib/image-spend";
@@ -63,15 +65,7 @@ function Chip({
 }
 
 function formatWhen(value: string) {
-  const ms = Date.parse(value);
-  if (!Number.isFinite(ms)) return value;
-  return new Date(ms).toLocaleString("zh-TW", {
-    month: "2-digit",
-    day: "2-digit",
-    hour: "2-digit",
-    minute: "2-digit",
-    hour12: false,
-  });
+  return formatTaipeiShort(value);
 }
 
 function localizeStatus(status: string) {
@@ -327,7 +321,9 @@ export function AdminDashboard({
 }) {
   const [data, setData] = useState(initial);
   const [error, setError] = useState<string | null>(null);
-  const [tab, setTab] = useState<"overview" | "roster" | "batch">("overview");
+  const [tab, setTab] = useState<"overview" | "roster" | "check-in" | "batch">(
+    "overview",
+  );
   const [rosterNames, setRosterNames] = useState<Map<string, string> | null>(
     null,
   );
@@ -401,6 +397,14 @@ export function AdminDashboard({
           onClick={() => setTab("roster")}
         >
           名單管理
+        </button>
+        <button
+          type="button"
+          className={tab === "check-in" ? "is-active" : undefined}
+          aria-pressed={tab === "check-in"}
+          onClick={() => setTab("check-in")}
+        >
+          報到管理
         </button>
         <button
           type="button"
@@ -538,6 +542,10 @@ export function AdminDashboard({
 
       <div className="admin-tabpanel" hidden={tab !== "roster"}>
         <AdminRosterPanel onEntriesChange={handleRosterEntries} />
+      </div>
+
+      <div className="admin-tabpanel" hidden={tab !== "check-in"}>
+        <AdminCheckInPanel active={tab === "check-in"} />
       </div>
 
       <div className="admin-tabpanel" hidden={tab !== "batch"}>

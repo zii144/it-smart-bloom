@@ -11,6 +11,12 @@ import {
 import { BloomMark } from "@/components/brand";
 import { DevImageSettingsModal } from "@/components/dev-image-settings-modal";
 import {
+  ArrowIcon,
+  InvitationDetails,
+  InvitationOverline,
+  InvitationRule,
+} from "@/components/invitation";
+import {
   activeDeviceId,
   describeCameraError,
   requestUserCamera,
@@ -23,20 +29,6 @@ import {
   normalizeMobile,
 } from "@/lib/guest-identity";
 import type { ImageGenerationOptions } from "@/lib/image-options";
-import { buildLineShareUrl } from "@/lib/line-share";
-
-type SessionPayload = {
-  id: string;
-  status: "ready" | "generating" | "complete" | "failed";
-  createdAt: string;
-  expiresAt: string;
-  inputUrl: string;
-  resultUrl: string | null;
-  error: string | null;
-  sessionUrl: string;
-  qrDataUrl: string;
-  generationOptions?: ImageGenerationOptions | null;
-};
 
 type BoothStep =
   | "invitation"
@@ -66,31 +58,6 @@ function CameraIcon() {
       <path d="M8.2 5.5 9.4 3.8h5.2l1.2 1.7H19A2.5 2.5 0 0 1 21.5 8v9A2.5 2.5 0 0 1 19 19.5H5A2.5 2.5 0 0 1 2.5 17V8A2.5 2.5 0 0 1 5 5.5h3.2Z" />
       <circle className="icon-ghost-line" cx="12.2" cy="12.3" r="4.15" />
       <circle cx="12" cy="12.5" r="4" />
-    </svg>
-  );
-}
-
-function InvitationRule() {
-  return (
-    <div className="invitation-rule" aria-hidden="true">
-      <span />
-      <svg viewBox="0 0 48 24">
-        <path d="M24 5l4 7-4 7-4-7z" />
-        <path d="M19 12c-5 0-8-5-13-3-3 1-2 6 3 5 3-.5 4-3 2-4" />
-        <path d="M29 12c5 0 8-5 13-3 3 1 2 6-3 5-3-.5-4-3-2-4" />
-        <circle cx="24" cy="1.5" r="1" />
-        <circle cx="24" cy="22.5" r="1" />
-      </svg>
-      <span />
-    </div>
-  );
-}
-
-function ArrowIcon() {
-  return (
-    <svg viewBox="0 0 24 24" aria-hidden="true">
-      <path className="icon-ghost-line" d="M5 12.4h14M14.2 7.2l5 5-5 5" />
-      <path d="M5 12h14M14 7l5 5-5 5" />
     </svg>
   );
 }
@@ -141,21 +108,16 @@ function SparkIcon() {
   );
 }
 
-function LineIcon() {
-  return (
-    <svg viewBox="0 0 24 24" aria-hidden="true">
-      <path
-        fill="currentColor"
-        d="M19.7 9.7c0-4-4-7.3-8.9-7.3S1.9 5.7 1.9 9.7c0 3.6 3.2 6.7 7.5 7.2.29.06.69.19.79.44.09.23.06.59.03.82l-.14.86c-.04.25-.2 1 .95.54 1.15-.44 6.2-3.65 8.47-6.25 1.56-1.7 2.2-3.42 2.2-5.11Z"
-      />
-    </svg>
-  );
-}
-
 export function CameraBooth({
   tuningEnabled = false,
+  cameraOption = false,
 }: {
   tuningEnabled?: boolean;
+  /**
+   * Offers 改用現場相機 beside the photo upload. Off for guests: the booth is
+   * upload-only. Kept (and tested) so a staffed kiosk can turn it back on.
+   */
+  cameraOption?: boolean;
 }) {
   // The invitation's floral paper is a CSS background (see .invitation-paper),
   // so hint it early instead of waiting for the stylesheet to discover it.
@@ -170,7 +132,6 @@ export function CameraBooth({
   const [photo, setPhoto] = useState<Blob | null>(null);
   const [photoSource, setPhotoSource] = useState<PhotoSource | null>(null);
   const [previewUrl, setPreviewUrl] = useState<string | null>(null);
-  const [session, setSession] = useState<SessionPayload | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [cameraReady, setCameraReady] = useState(false);
   const [showSettings, setShowSettings] = useState(false);
@@ -217,58 +178,6 @@ export function CameraBooth({
       console.warn("[bloom] video.play() rejected", caught);
     });
   }, [step, streamEpoch]);
-
-  useEffect(() => {
-    if (!session || step !== "sharing") return;
-
-    let active = true;
-    let timer: number | undefined;
-    const createdAt = session.createdAt;
-
-    function delayFor(status: SessionPayload["status"]) {
-      if (status === "complete" || status === "failed") return null;
-      const elapsed = Date.now() - Date.parse(createdAt);
-      if (elapsed > 60_000) return 5_000;
-      if (elapsed > 30_000) return 3_500;
-      return 2_000;
-    }
-
-    async function poll() {
-      try {
-        const response = await fetch(`/api/sessions/${session!.id}`, {
-          cache: "no-store",
-        });
-        if (!active) return;
-        if (!response.ok) {
-          timer = window.setTimeout(() => void poll(), 3_000);
-          return;
-        }
-        const next = (await response.json()) as SessionPayload;
-        setSession((current) => (current ? { ...current, ...next } : current));
-
-        if (next.status === "failed") {
-          setError(next.error || "人像生成失敗，請再試一次。");
-        }
-
-        // Stay on the QR screen after complete so the guest can still scan /
-        // open LINE. Stop polling once the portrait settles.
-        const nextDelay = delayFor(next.status);
-        if (nextDelay !== null) {
-          timer = window.setTimeout(() => void poll(), nextDelay);
-        }
-      } catch {
-        if (active) {
-          timer = window.setTimeout(() => void poll(), 3_000);
-        }
-      }
-    }
-
-    timer = window.setTimeout(() => void poll(), 2_000);
-    return () => {
-      active = false;
-      if (timer) window.clearTimeout(timer);
-    };
-  }, [session?.id, session?.createdAt, step]);
 
   async function openCamera() {
     setError(null);
@@ -424,10 +333,9 @@ export function CameraBooth({
         throw new Error(payload.error || "無法建立人像創作連結。");
       }
 
-      // Force the next guest through the options modal again so a one-off
-      // "假生成" choice cannot silently stick for the rest of the booth day.
-      setTuningOptions(null);
-      setSession(payload as SessionPayload);
+      // The success card is its own page; a full navigation also drops the
+      // camera stream and any one-off "假生成" choice before the next guest.
+      window.location.assign(`/success/${encodeURIComponent(payload.id)}`);
     } catch (caught) {
       setError(
         caught instanceof Error ? caught.message : "無法分享這張照片。",
@@ -571,14 +479,7 @@ export function CameraBooth({
                 aria-hidden="true"
               />
 
-              <p className="invitation-overline">
-                <span>交通部</span>
-              </p>
-              <p className="invitation-program">
-                114至115年高齡者交通安全教育－
-                <br />
-                路老師培訓宣講計畫
-              </p>
+              <InvitationOverline />
               <InvitationRule />
               <h1 id="invitation-title">
                 <span className="invitation-title-mark">
@@ -595,23 +496,7 @@ export function CameraBooth({
               <InvitationRule />
               <p className="invitation-title-sub">一起見證精彩成果</p>
               <InvitationRule />
-              <dl className="invitation-details">
-                <div>
-                  <dt>日期</dt>
-                  <dd>115年11月10日 星期二</dd>
-                </div>
-                <div>
-                  <dt>時間</dt>
-                  <dd>14:00–15:30</dd>
-                </div>
-                <div>
-                  <dt>場地</dt>
-                  <dd>
-                    晶宴會館—民權館
-                    <small>臺北市中山區江寧里民權東路三段2號B1</small>
-                  </dd>
-                </div>
-              </dl>
+              <InvitationDetails />
               <p className="invitation-signature">
                 <span>敬邀蒞臨</span>
               </p>
@@ -783,15 +668,17 @@ export function CameraBooth({
                   <ArrowIcon />
                 </span>
               </button>
-              <button
-                type="button"
-                className="secondary-button guest-camera-option"
-                onClick={() => void continueWithCamera()}
-                disabled={checkingGuest}
-              >
-                <CameraIcon />
-                改用現場相機
-              </button>
+              {cameraOption && (
+                <button
+                  type="button"
+                  className="secondary-button guest-camera-option"
+                  onClick={() => void continueWithCamera()}
+                  disabled={checkingGuest}
+                >
+                  <CameraIcon />
+                  改用現場相機
+                </button>
+              )}
               <button
                 type="button"
                 className="text-button guest-entry-back"
@@ -996,87 +883,13 @@ export function CameraBooth({
 
         {step === "sharing" && (
           <div className="share-layout">
-            {!session ? (
-              <div className="creation-loader">
-                <div className="bloom-loader">
-                  <BloomMark compact />
-                </div>
-                <p className="eyebrow">正在準備手機連結</p>
-                <h1>請稍候片刻…</h1>
+            <div className="creation-loader">
+              <div className="bloom-loader">
+                <BloomMark compact />
               </div>
-            ) : (
-              <>
-                {session.generationOptions?.fakeGenerate && (
-                  <p className="demo-mode-banner" role="status">
-                    示範模式：這次是假生成，掃 QR 會看到固定示範人像，不是這位訪客的真實結果。
-                  </p>
-                )}
-                <div className="share-copy">
-                  <p className="eyebrow">接續在手機上體驗</p>
-                  <h1>
-                    {session.status === "complete"
-                      ? "請用手機開啟連結。"
-                      : "掃描，或用 LINE 接收。"}
-                  </h1>
-                  <p>
-                    {session.status === "complete"
-                      ? "人像已在手機頁面就緒：可下載、分享到臉書，並留下身分。攤位保留 QR，方便尚未掃碼的訪客。"
-                      : "開啟手機相機掃描 QR Code，或點下方按鈕透過 LINE 接收私人連結。進入頁面後，我們就會開始創作你的路老師似顏繪。"}
-                  </p>
-                  <div className="live-status">
-                    <span
-                      className={
-                        session.status === "generating" ? "pulse-dot" : ""
-                      }
-                    />
-                    {session.generationOptions?.fakeGenerate
-                      ? "示範人像已就緒・請勿當成正式結果"
-                      : session.status === "complete"
-                      ? "手機端人像已完成・QR 仍可掃描"
-                      : session.status === "generating"
-                        ? "正在創作你的路老師似顏繪"
-                        : session.status === "failed"
-                          ? "創作失敗・請重新開始"
-                          : "等待手機開啟連結"}
-                  </div>
-                </div>
-                <div className="share-actions">
-                  <div className="qr-card">
-                    <Image
-                      src={session.qrDataUrl}
-                      alt="私人藝術人像連結 QR Code"
-                      width={320}
-                      height={320}
-                      unoptimized
-                      loading="eager"
-                    />
-                    <p>私人連結・請用手機開啟</p>
-                  </div>
-                  <a
-                    className="line-receive-button"
-                    href={buildLineShareUrl(
-                      session.sessionUrl,
-                      "開啟你的路老師似顏繪（私人連結）",
-                    )}
-                    target="_blank"
-                    rel="noopener noreferrer"
-                  >
-                    <LineIcon />
-                    用 LINE 接收連結
-                  </a>
-                </div>
-                {error && <p className="error-message">{error}</p>}
-                {session.status === "complete" ? (
-                  <button className="primary-button" onClick={startOver}>
-                    下一組訪客
-                  </button>
-                ) : (
-                  <button className="text-button" onClick={startOver}>
-                    重新開始
-                  </button>
-                )}
-              </>
-            )}
+              <p className="eyebrow">正在送出你的照片</p>
+              <h1>請稍候片刻…</h1>
+            </div>
           </div>
         )}
       </section>

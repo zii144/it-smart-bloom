@@ -123,6 +123,13 @@ describe("CameraBooth stream attachment", () => {
     expect(container.querySelector("#guest-name")).toBeTruthy();
     expect(container.querySelector("#guest-phone")).toBeTruthy();
     expect(container.querySelector('input[type="file"]')).toBeTruthy();
+    // Guests are upload-only: no on-site camera option.
+    expect(container.textContent).not.toContain("改用現場相機");
+  });
+
+  it("offers the on-site camera only when the booth turns it on", () => {
+    const { container } = render(<CameraBooth cameraOption />);
+    enterBooth(container);
     expect(container.textContent).toContain("改用現場相機");
   });
 
@@ -173,6 +180,50 @@ describe("CameraBooth stream attachment", () => {
     );
   });
 
+  it("goes to the success card once the portrait session exists", async () => {
+    verifyFetch.mockImplementation(async (url: string) =>
+      url === "/api/sessions"
+        ? Response.json({ id: "sess-123" }, { status: 201 })
+        : Response.json({ matched: true }),
+    );
+    const assign = vi.fn();
+    const realLocation = window.location;
+    Object.defineProperty(window, "location", {
+      configurable: true,
+      value: { ...realLocation, assign },
+    });
+
+    try {
+      const { container } = render(<CameraBooth />);
+      enterBooth(container);
+      fillGuestDetails(container);
+      fireEvent.change(container.querySelector('input[type="file"]')!, {
+        target: {
+          files: [
+            new File([new Uint8Array([0xff, 0xd8, 0xff])], "portrait.jpg", {
+              type: "image/jpeg",
+            }),
+          ],
+        },
+      });
+      fireEvent.click(container.querySelector("button.guest-entry-submit")!);
+      await waitFor(() => expect(container.textContent).toContain("就選這張嗎"));
+
+      const usePhoto = [...container.querySelectorAll("button")].find((button) =>
+        button.textContent?.includes("使用這張照片"),
+      )!;
+      fireEvent.click(usePhoto);
+
+      await waitFor(() => expect(assign).toHaveBeenCalledWith("/success/sess-123"));
+      const [, sessionCall] = verifyFetch.mock.calls.find(([url]) => url === "/api/sessions")!;
+      const body = sessionCall.body as FormData;
+      expect(body.get("name")).toBe("張小明");
+      expect(body.get("phone")).toBe("0912345678");
+    } finally {
+      Object.defineProperty(window, "location", { configurable: true, value: realLocation });
+    }
+  });
+
   it("keeps a guest who is not on the roster on the form", async () => {
     verifyFetch.mockResolvedValue(
       Response.json(
@@ -180,7 +231,7 @@ describe("CameraBooth stream attachment", () => {
         { status: 403 },
       ),
     );
-    const { container } = render(<CameraBooth />);
+    const { container } = render(<CameraBooth cameraOption />);
     enterBooth(container);
     fillGuestDetails(container);
 
@@ -202,7 +253,7 @@ describe("CameraBooth stream attachment", () => {
     const stream = fakeStream();
     stubCamera(stream);
 
-    const { container } = render(<CameraBooth />);
+    const { container } = render(<CameraBooth cameraOption />);
     await enterCameraBooth(container);
     fireEvent.click(container.querySelector("button.primary-button")!);
 
@@ -219,7 +270,7 @@ describe("CameraBooth stream attachment", () => {
   it("enables the shutter once metadata arrives, even without canplay", async () => {
     stubCamera(fakeStream());
 
-    const { container } = render(<CameraBooth />);
+    const { container } = render(<CameraBooth cameraOption />);
     await enterCameraBooth(container);
     fireEvent.click(container.querySelector("button.primary-button")!);
 
@@ -251,7 +302,7 @@ describe("CameraBooth camera picker", () => {
   it("stays hidden when the device has a single camera", async () => {
     stubCamera(fakeStream());
 
-    const { container } = render(<CameraBooth />);
+    const { container } = render(<CameraBooth cameraOption />);
     await enterCameraBooth(container);
     fireEvent.click(container.querySelector("button.primary-button")!);
 
@@ -271,7 +322,7 @@ describe("CameraBooth camera picker", () => {
       twoCameras,
     );
 
-    const { container } = render(<CameraBooth />);
+    const { container } = render(<CameraBooth cameraOption />);
     await enterCameraBooth(container);
     fireEvent.click(container.querySelector("button.primary-button")!);
 
