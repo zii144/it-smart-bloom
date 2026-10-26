@@ -74,6 +74,43 @@ The **批次生成** tab renders a stack of photos in one go, using
 `OPENAI_IMAGE_SYSTEM_PROMPT` and the same model/quality/size defaults as the
 booth.
 
+### Guest roster (名單)
+
+Only guests on the roster can create a portrait. The booth asks for 姓名 +
+手機, and both must match one entry in the Firestore `roster` collection.
+`POST /api/roster/verify` gives the guest an early answer.
+`POST /api/sessions` checks again on the server and stores only the matched
+`rosterEntryId` on the session, never the name or phone. If Firestore is
+unreachable, the booth fails closed with a 503.
+
+Manage the roster in the admin dashboard's **名單管理** tab:
+
+- **Import from Excel (.xlsx).** The first sheet with both 姓名 and 手機
+  columns is used. The importer shows a preview (new / updated / unchanged /
+  rows to check) before anything is written. Imports only add and update:
+  nobody is deleted, and blank cells never erase existing values. Phone
+  numbers like `0912-345-678`, `+886 912…`, or a number cell that lost its
+  leading 0 are normalized to `09xxxxxxxx`. The same person listed twice is
+  merged. Legacy `.xls` files must be re-saved as `.xlsx`.
+- **Columns.** 座位, 標籤, 身分, 電子郵件, 地址, 公文, 備註, 背心, 飯友,
+  導師補助 and 團隊貴賓 are kept for admin use. Unknown columns are kept as
+  extra fields. 身分證正面/反面 and 存摺 are never imported.
+- **Edit, add or delete people.** People without a valid mobile are imported
+  but cannot match until a mobile is filled in (filter: 只看無手機). Two
+  entries cannot share the same 姓名 + 手機.
+
+Failed guest lookups are rate-limited per server instance: 8 wrong phone
+numbers per name per client in 10 minutes. There is also a 200-failure
+ceiling per client, kept high because every guest at the booth shares one
+network address.
+
+Store integration tests run against a dedicated emulator on port 8181, so
+they never touch the dev emulator's data:
+
+```bash
+npm run test:emulator
+```
+
 ### Session guest access
 
 Guest session URLs expire after 15 minutes (`expiresAt`). Status, image, and

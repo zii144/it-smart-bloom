@@ -44,6 +44,7 @@ async function loadDashboard(): Promise<AdminDashboardPayload> {
         ? `${session.identity.kind}:${session.identity.value}`
         : null,
       avatarRequestStatus: null,
+      rosterEntryId: session.rosterEntryId ?? null,
       fakeGenerate: Boolean(session.generationOptions?.fakeGenerate),
       source: session.source ?? null,
       error: session.error ?? null,
@@ -63,6 +64,7 @@ async function loadDashboard(): Promise<AdminDashboardPayload> {
           ? `${session.identityKind}:${session.identityValue}`
           : null,
       avatarRequestStatus: session.avatarRequestStatus,
+      rosterEntryId: session.rosterEntryId ?? null,
       fakeGenerate: null,
       source: session.source ?? null,
       error: session.error,

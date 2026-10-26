@@ -9,7 +9,6 @@ import {
   writeFile,
 } from "node:fs/promises";
 import path from "node:path";
-import type { GuestIdentity } from "@/lib/guest-identity";
 import type { ImageGenerationOptions } from "@/lib/image-options";
 
 export const SESSION_TTL_MS = 15 * 60 * 1000;
@@ -46,6 +45,8 @@ export type ImageSession = {
   /** Billable (or fake) generation starts counted against the per-session cap. */
   generationAttempts?: number;
   generationOptions?: ImageGenerationOptions;
+  /** `roster/{id}` of the guest who made this portrait; never their details. */
+  rosterEntryId?: string;
   identity?: {
     kind: "lineId" | "mobile";
     value: string;
@@ -126,6 +127,7 @@ function sessionFromArchive(record: {
   resultMime?: string | null;
   source?: SessionSource | null;
   generationOptions?: ImageSession["generationOptions"] | null;
+  rosterEntryId?: string | null;
   identityKind?: "lineId" | "mobile" | null;
   identityValue?: string | null;
   claimedAt?: string | null;
@@ -155,6 +157,7 @@ function sessionFromArchive(record: {
   if (record.generationOptions) {
     session.generationOptions = record.generationOptions;
   }
+  if (record.rosterEntryId) session.rosterEntryId = record.rosterEntryId;
   if (record.identityKind && record.identityValue && record.claimedAt) {
     session.identity = {
       kind: record.identityKind,
@@ -271,7 +274,7 @@ export async function createSession(
   file: File,
   generationOptions?: ImageGenerationOptions,
   source?: SessionSource,
-  identity?: GuestIdentity,
+  link?: { rosterEntryId?: string },
 ) {
   if (!SUPPORTED_IMAGE_TYPES.has(file.type)) {
     throw new SessionError("請使用 JPEG、PNG 或 WebP 格式的照片。", 415);
@@ -296,15 +299,7 @@ export async function createSession(
     inputMime: file.type,
     ...(source ? { source } : {}),
     ...(generationOptions ? { generationOptions } : {}),
-    ...(identity
-      ? {
-          identity: {
-            kind: identity.kind,
-            value: identity.value,
-            claimedAt: createdAt.toISOString(),
-          },
-        }
-      : {}),
+    ...(link?.rosterEntryId ? { rosterEntryId: link.rosterEntryId } : {}),
   };
 
   await mkdir(sessionDirectory(id), { recursive: true });

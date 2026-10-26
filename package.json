@@ -11,6 +11,7 @@
     "lint": "eslint",
     "test": "vitest run",
     "test:watch": "vitest",
+    "test:emulator": "firebase emulators:exec --config firebase.emulator-test.json --project it-smart-bloom-tmp --only firestore \"vitest run tests/roster-store.emulator.test.ts\"",
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {
@@ -19,7 +20,8 @@
     "openai": "^6.49.0",
     "qrcode": "^1.5.4",
     "react": "19.2.4",
-    "react-dom": "19.2.4"
+    "react-dom": "19.2.4",
+    "read-excel-file": "9.3.12"
   },
   "devDependencies": {
     "@tailwindcss/postcss": "^4",
@@ -33,6 +35,7 @@
     "@vitejs/plugin-react": "^6.0.4",
     "eslint": "^9",
     "eslint-config-next": "16.2.12",
+    "fflate": "0.8.3",
     "firebase-tools": "^15.24.0",
     "jsdom": "^29.1.1",
     "tailwindcss": "^4",

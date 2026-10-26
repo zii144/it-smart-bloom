@@ -61,7 +61,8 @@ function fillGuestDetails(container: HTMLElement) {
   fireEvent.change(phone, { target: { value: "0912-345-678" } });
 }
 
-function enterCameraBooth(container: HTMLElement) {
+/** Leaves the guest form once the (stubbed) roster check has passed. */
+async function enterCameraBooth(container: HTMLElement) {
   enterBooth(container);
   fillGuestDetails(container);
 
@@ -70,9 +71,14 @@ function enterCameraBooth(container: HTMLElement) {
   );
   if (!cameraButton) throw new Error("camera option not rendered");
   fireEvent.click(cameraButton);
+  await waitFor(() => expect(container.textContent).not.toContain("改用現場相機"));
 }
 
+let verifyFetch: ReturnType<typeof vi.fn>;
+
 beforeEach(() => {
+  verifyFetch = vi.fn(async () => Response.json({ matched: true }));
+  vi.stubGlobal("fetch", verifyFetch);
   window.localStorage.clear();
   Object.defineProperty(window, "isSecureContext", {
     configurable: true,
@@ -96,6 +102,7 @@ beforeEach(() => {
 afterEach(() => {
   cleanup();
   vi.restoreAllMocks();
+  vi.unstubAllGlobals();
 });
 
 describe("CameraBooth stream attachment", () => {
@@ -137,7 +144,7 @@ describe("CameraBooth stream attachment", () => {
     expect(container.textContent).not.toContain("就選這張嗎");
   });
 
-  it("previews a valid uploaded image after collecting name and phone", () => {
+  it("previews a valid uploaded image once the guest is on the roster", async () => {
     const { container } = render(<CameraBooth />);
     enterBooth(container);
 
@@ -153,10 +160,42 @@ describe("CameraBooth stream attachment", () => {
     });
     fireEvent.click(container.querySelector("button.guest-entry-submit")!);
 
-    expect(container.textContent).toContain("就選這張嗎");
+    await waitFor(() => expect(container.textContent).toContain("就選這張嗎"));
     expect(
       container.querySelector('img[alt="你剛拍下的人像照片"]'),
     ).toBeTruthy();
+    expect(verifyFetch).toHaveBeenCalledWith(
+      "/api/roster/verify",
+      expect.objectContaining({
+        method: "POST",
+        body: JSON.stringify({ name: "張小明", phone: "0912345678" }),
+      }),
+    );
+  });
+
+  it("keeps a guest who is not on the roster on the form", async () => {
+    verifyFetch.mockResolvedValue(
+      Response.json(
+        { error: "找不到你的報名資料，請確認姓名與手機號碼，或洽現場工作人員。" },
+        { status: 403 },
+      ),
+    );
+    const { container } = render(<CameraBooth />);
+    enterBooth(container);
+    fillGuestDetails(container);
+
+    const cameraButton = [...container.querySelectorAll("button")].find(
+      (button) => button.textContent?.includes("改用現場相機"),
+    )!;
+    fireEvent.click(cameraButton);
+
+    await waitFor(() =>
+      expect(container.querySelector('[role="alert"]')?.textContent).toContain(
+        "找不到你的報名資料",
+      ),
+    );
+    expect(container.querySelector("#guest-name")).toBeTruthy();
+    expect(container.textContent).toContain("改用現場相機");
   });
 
   it("attaches the stream to the video element and starts playback", async () => {
@@ -164,7 +203,7 @@ describe("CameraBooth stream attachment", () => {
     stubCamera(stream);
 
     const { container } = render(<CameraBooth />);
-    enterCameraBooth(container);
+    await enterCameraBooth(container);
     fireEvent.click(container.querySelector("button.primary-button")!);
 
     const video = await waitFor(() => {
@@ -181,7 +220,7 @@ describe("CameraBooth stream attachment", () => {
     stubCamera(fakeStream());
 
     const { container } = render(<CameraBooth />);
-    enterCameraBooth(container);
+    await enterCameraBooth(container);
     fireEvent.click(container.querySelector("button.primary-button")!);
 
     const video = await waitFor(() => {
@@ -213,7 +252,7 @@ describe("CameraBooth camera picker", () => {
     stubCamera(fakeStream());
 
     const { container } = render(<CameraBooth />);
-    enterCameraBooth(container);
+    await enterCameraBooth(container);
     fireEvent.click(container.querySelector("button.primary-button")!);
 
     await waitFor(() => expect(container.querySelector("video")).toBeTruthy());
@@ -233,7 +272,7 @@ describe("CameraBooth camera picker", () => {
     );
 
     const { container } = render(<CameraBooth />);
-    enterCameraBooth(container);
+    await enterCameraBooth(container);
     fireEvent.click(container.querySelector("button.primary-button")!);
 
     const select = await waitFor(() => {

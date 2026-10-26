@@ -1,15 +1,23 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { POST } from "@/app/api/sessions/route";
+import { RosterUnavailableError } from "@/lib/roster-store";
 import { getSession } from "@/lib/sessions";
 import { imageFile, jpegBytes } from "./helpers";
 
-const { afterMock, generateImageMock } = vi.hoisted(() => ({
+const { afterMock, generateImageMock, findRosterMatchMock } = vi.hoisted(() => ({
   afterMock: vi.fn(),
   generateImageMock: vi.fn(),
+  findRosterMatchMock: vi.fn(),
 }));
 
 vi.mock("next/server", () => ({ after: afterMock }));
 vi.mock("@/lib/generate-image", () => ({ generateImage: generateImageMock }));
+vi.mock("@/lib/roster-store", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("@/lib/roster-store")>()),
+  findRosterMatch: findRosterMatchMock,
+}));
+
+const GUEST = { name: "張小明", phone: "0912345678" };
 
 /** Run the work the route handed to `after()`, the way the server would. */
 async function flushAfterCallbacks() {
@@ -21,7 +29,7 @@ async function flushAfterCallbacks() {
 function createRequest(
   file = imageFile(),
   imageOptions?: string,
-  extraFields: Record<string, string> = {},
+  extraFields: Record<string, string> = GUEST,
 ) {
   const body = new FormData();
   body.set("image", file);
@@ -41,6 +49,8 @@ beforeEach(() => {
   afterMock.mockReset();
   generateImageMock.mockReset();
   generateImageMock.mockResolvedValue(undefined);
+  findRosterMatchMock.mockReset();
+  findRosterMatchMock.mockResolvedValue({ id: "roster-1" });
 });
 
 describe("POST /api/sessions", () => {
@@ -59,21 +69,52 @@ describe("POST /api/sessions", () => {
     });
   });
 
-  it("ignores guest identity fields and keeps the uploaded portrait", async () => {
+  it("links the portrait to the guest's roster entry, not their details", async () => {
     const response = await POST(
       createRequest(imageFile(), undefined, {
+        ...GUEST,
+        phone: "0912-345-678",
         lineId: "112-張小明-南投縣",
-        name: "張小明",
-        phone: "0912345678",
       }),
     );
     const payload = await response.json();
 
     expect(response.status).toBe(201);
+    expect(findRosterMatchMock).toHaveBeenCalledWith("張小明", "0912345678");
     expect(payload).not.toHaveProperty("identity");
+    expect(payload).not.toHaveProperty("rosterEntryId");
     const session = await getSession(payload.id);
+    expect(session.rosterEntryId).toBe("roster-1");
     expect(session.identity).toBeUndefined();
-    expect(session.status).toBe("ready");
+    expect(JSON.stringify(session)).not.toContain("0912345678");
+    expect(JSON.stringify(session)).not.toContain("張小明");
+  });
+
+  it("refuses a guest who is not on the roster before storing anything", async () => {
+    findRosterMatchMock.mockResolvedValue(null);
+
+    const response = await POST(createRequest());
+
+    expect(response.status).toBe(403);
+    expect((await response.json()).error).toContain("找不到");
+    expect(afterMock).not.toHaveBeenCalled();
+  });
+
+  it("requires a name and phone", async () => {
+    const response = await POST(createRequest(imageFile(), undefined, {}));
+
+    expect(response.status).toBe(400);
+    expect(findRosterMatchMock).not.toHaveBeenCalled();
+    expect(afterMock).not.toHaveBeenCalled();
+  });
+
+  it("fails closed when the roster cannot be read", async () => {
+    findRosterMatchMock.mockRejectedValue(new RosterUnavailableError());
+
+    const response = await POST(createRequest());
+
+    expect(response.status).toBe(503);
+    expect(afterMock).not.toHaveBeenCalled();
   });
 
   it("builds the share link from APP_BASE_URL when configured", async () => {

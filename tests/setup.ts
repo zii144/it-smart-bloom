@@ -3,6 +3,7 @@ import { tmpdir } from "node:os";
 import path from "node:path";
 import { afterAll, beforeAll, beforeEach } from "vitest";
 import { resetSpendCache } from "@/lib/image-spend";
+import { resetGuestRosterAttempts } from "@/lib/roster-attempts";
 
 /**
  * Env that changes how sessions/generation behave. Cleared before every test so
@@ -52,4 +53,6 @@ beforeEach(() => {
   process.env.NEXT_PUBLIC_RT_MOCK_DELAY_MS = "0";
   // Renders counted by one test must not push the next one over a ceiling.
   resetSpendCache();
+  // Failed roster lookups in one test must not rate-limit the next.
+  resetGuestRosterAttempts();
 });
