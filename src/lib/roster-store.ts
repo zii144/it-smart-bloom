@@ -1,3 +1,4 @@
+import { randomBytes } from "node:crypto";
 import type {
   DocumentData,
   Firestore,
@@ -11,7 +12,9 @@ import {
   rosterEntryFromRow,
   rosterMatchKey,
   rosterNameKey,
+  type CheckInSource,
   type ParsedRoster,
+  type PortraitStatus,
   type RosterEntry,
   type RosterEntryData,
   type RosterImportPlan,
@@ -21,6 +24,7 @@ import {
 const ROSTER_COLLECTION = "roster";
 const META_COLLECTION = "rosterMeta";
 const LAST_IMPORT_DOC = "lastImport";
+const CHECK_IN_DOC = "checkIn";
 /** Firestore caps a batch at 500 writes; stay well under it. */
 const WRITE_BATCH_SIZE = 400;
 
@@ -149,8 +153,10 @@ export async function updateRosterEntry(id: string, input: RosterInput) {
       }
     }
 
-    transaction.set(ref, data);
-    return toEntry(id, data);
+    // Keep event-day state (check-in, portrait) that the edit form never sends.
+    const merged = { ...previous, ...data };
+    transaction.set(ref, merged);
+    return toEntry(id, merged);
   });
 }
 
@@ -233,4 +239,172 @@ export async function findRosterMatch(
     .get();
   const doc = snapshot.docs[0];
   return doc ? { id: doc.id } : null;
+}
+
+// —— Event day: check-in ——
+
+export type CheckInSettings = { open: boolean; updatedAt: string | null };
+
+/** How long a check-in's portrait link keeps working. */
+export const PORTRAIT_ACCESS_TTL_MS = 7 * 24 * 60 * 60 * 1000;
+
+export type CheckInResult = {
+  name: string;
+  seat: string;
+  checkedInAt: string;
+  /** True when the guest had already checked in; the original time is kept. */
+  alreadyCheckedIn: boolean;
+  portrait: {
+    status: PortraitStatus | null;
+    /** Only once the portrait is finished: the token for /api/check-in/portrait. */
+    accessToken: string | null;
+  };
+};
+
+export async function readCheckInSettings(): Promise<CheckInSettings> {
+  const db = requireDb();
+  const doc = await db.collection(META_COLLECTION).doc(CHECK_IN_DOC).get();
+  const data = doc.data() as Partial<CheckInSettings> | undefined;
+  // Closed until an admin opens it.
+  return { open: data?.open === true, updatedAt: data?.updatedAt ?? null };
+}
+
+export async function setCheckInOpen(open: boolean): Promise<CheckInSettings> {
+  const db = requireDb();
+  const settings = { open, updatedAt: new Date().toISOString() };
+  await db.collection(META_COLLECTION).doc(CHECK_IN_DOC).set(settings);
+  return settings;
+}
+
+/**
+ * Marks a guest arrived. Idempotent: a second check-in keeps the first time,
+ * so a guest re-scanning the poster never moves their arrival later.
+ *
+ * Every successful check-in (first or repeat) also hands over the finished
+ * portrait, if there is one, via a fresh random access token: proving 姓名 +
+ * 手機 at check-in is what earns the portrait.
+ */
+export async function checkInRosterEntry(
+  id: string,
+  source: CheckInSource,
+): Promise<CheckInResult> {
+  const db = requireDb();
+  const ref = rosterCollection(db).doc(id);
+
+  return db.runTransaction(async (transaction) => {
+    const current = await transaction.get(ref);
+    if (!current.exists) throw new RosterNotFoundError();
+    const entry = current.data() as RosterEntryData;
+    const now = new Date();
+    const alreadyCheckedIn = Boolean(entry.checkedInAt);
+    const checkedInAt = entry.checkedInAt ?? now.toISOString();
+
+    const portraitReady = entry.portraitStatus === "complete" && entry.portraitSessionId;
+    const accessToken = portraitReady ? randomBytes(32).toString("base64url") : null;
+
+    const changes: Partial<RosterEntryData> = {};
+    if (!alreadyCheckedIn) {
+      changes.checkedInAt = checkedInAt;
+      changes.checkInSource = source;
+    }
+    if (accessToken) {
+      changes.portraitAccessToken = accessToken;
+      changes.portraitAccessExpiresAt = new Date(
+        now.getTime() + PORTRAIT_ACCESS_TTL_MS,
+      ).toISOString();
+    }
+    if (Object.keys(changes).length) transaction.update(ref, changes);
+
+    return {
+      name: entry.name,
+      seat: entry.seat ?? "",
+      checkedInAt,
+      alreadyCheckedIn,
+      portrait: { status: entry.portraitStatus ?? null, accessToken },
+    };
+  });
+}
+
+/**
+ * Resolves a check-in portrait token to the guest's portrait session, or
+ * null when it is unknown, expired, or the portrait has since changed.
+ */
+export async function findPortraitByAccessToken(
+  token: string,
+): Promise<{ sessionId: string; name: string } | null> {
+  if (!/^[A-Za-z0-9_-]{43}$/.test(token)) return null;
+  const db = requireDb();
+  const snapshot = await rosterCollection(db)
+    .where("portraitAccessToken", "==", token)
+    .limit(1)
+    .get();
+  const entry = snapshot.docs[0]?.data() as RosterEntryData | undefined;
+  if (!entry?.portraitSessionId || entry.portraitStatus !== "complete") return null;
+  const expiresAt = Date.parse(entry.portraitAccessExpiresAt ?? "");
+  if (!Number.isFinite(expiresAt) || expiresAt < Date.now()) return null;
+  return { sessionId: entry.portraitSessionId, name: entry.name };
+}
+
+/** Admin undo for a mistaken check-in. */
+export async function undoRosterCheckIn(id: string) {
+  const db = requireDb();
+  const ref = rosterCollection(db).doc(id);
+  await db.runTransaction(async (transaction) => {
+    const current = await transaction.get(ref);
+    if (!current.exists) throw new RosterNotFoundError();
+    // Undoing the arrival also takes back the portrait link it handed out.
+    transaction.update(ref, {
+      checkedInAt: null,
+      checkInSource: null,
+      portraitAccessToken: null,
+      portraitAccessExpiresAt: null,
+    });
+  });
+}
+
+/** Name and seat for the guest-facing success card; nothing else. */
+export async function readRosterGuest(
+  id: string,
+): Promise<{ name: string; seat: string } | null> {
+  const db = requireDb();
+  const doc = await rosterCollection(db).doc(id).get();
+  if (!doc.exists) return null;
+  const entry = doc.data() as RosterEntryData;
+  return { name: entry.name, seat: entry.seat ?? "" };
+}
+
+// —— Event day: portrait status ——
+
+/**
+ * Mirrors a booth session's status onto its guest's roster entry, so the
+ * admin check-in view reads one collection instead of every session.
+ * A newer session takes over; a late update from an older one is ignored.
+ * A deleted roster entry is left deleted.
+ */
+export async function recordRosterPortrait(
+  id: string,
+  sessionId: string,
+  status: PortraitStatus,
+  options: { isNewSession: boolean },
+) {
+  const db = requireDb();
+  const ref = rosterCollection(db).doc(id);
+
+  await db.runTransaction(async (transaction) => {
+    const current = await transaction.get(ref);
+    if (!current.exists) return;
+    const entry = current.data() as RosterEntryData;
+    if (
+      !options.isNewSession &&
+      entry.portraitSessionId &&
+      entry.portraitSessionId !== sessionId
+    ) {
+      return;
+    }
+    transaction.update(ref, {
+      portraitSessionId: sessionId,
+      portraitStatus: status,
+      portraitUpdatedAt: new Date().toISOString(),
+    });
+  });
 }

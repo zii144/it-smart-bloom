@@ -58,14 +58,37 @@ export type RosterInput = RosterFields & {
   extra: Record<string, string>;
 };
 
-/** Stored Firestore document (`roster/{id}`). */
-export type RosterEntryData = RosterInput & {
-  nameKey: string;
-  matchKey: string | null;
-  source: "import" | "admin";
-  createdAt: string;
-  updatedAt: string;
+export type CheckInSource = "self" | "admin";
+export type PortraitStatus = "ready" | "generating" | "complete" | "failed";
+
+/**
+ * Event-day state kept on the entry. Imports and admin edits never write
+ * these, so they survive re-imports. Older documents simply lack them.
+ */
+export type RosterEventState = {
+  checkedInAt?: string | null;
+  checkInSource?: CheckInSource | null;
+  /** The guest's most recent booth session and how far it got. */
+  portraitSessionId?: string | null;
+  portraitStatus?: PortraitStatus | null;
+  portraitUpdatedAt?: string | null;
+  /**
+   * Handed out by a valid check-in so the guest can collect their finished
+   * portrait; session links expire long before event day.
+   */
+  portraitAccessToken?: string | null;
+  portraitAccessExpiresAt?: string | null;
 };
+
+/** Stored Firestore document (`roster/{id}`). */
+export type RosterEntryData = RosterInput &
+  RosterEventState & {
+    nameKey: string;
+    matchKey: string | null;
+    source: "import" | "admin";
+    createdAt: string;
+    updatedAt: string;
+  };
 
 export type RosterEntry = RosterEntryData & { id: string };
 

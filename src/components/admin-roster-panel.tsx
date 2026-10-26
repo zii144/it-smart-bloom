@@ -1,6 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useState } from "react";
+import { formatTaipeiShort } from "@/lib/event-info";
 import {
   ROSTER_NUMBER_FIELDS,
   ROSTER_TEXT_FIELDS,
@@ -66,15 +67,7 @@ function bodyFromDraft(draft: EntryDraft) {
 }
 
 function formatWhen(value: string) {
-  const ms = Date.parse(value);
-  if (!Number.isFinite(ms)) return value;
-  return new Date(ms).toLocaleString("zh-TW", {
-    month: "2-digit",
-    day: "2-digit",
-    hour: "2-digit",
-    minute: "2-digit",
-    hour12: false,
-  });
+  return formatTaipeiShort(value);
 }
 
 async function readError(response: Response) {

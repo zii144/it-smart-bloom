@@ -15,6 +15,7 @@ import { buildXlsx, ROSTER_HEADER, rosterRow, xlsxFile } from "./xlsx-fixture";
 const store = vi.hoisted(() => ({
   listRosterEntries: vi.fn(),
   readLastImport: vi.fn(),
+  readCheckInSettings: vi.fn(),
   createRosterEntry: vi.fn(),
   updateRosterEntry: vi.fn(),
   deleteRosterEntry: vi.fn(),
@@ -76,6 +77,7 @@ beforeEach(() => {
   for (const mock of Object.values(store)) mock.mockReset();
   store.listRosterEntries.mockResolvedValue([]);
   store.readLastImport.mockResolvedValue(null);
+  store.readCheckInSettings.mockResolvedValue({ open: false, updatedAt: null });
   store.previewRosterImport.mockImplementation(async (parsed: ParsedRoster) =>
     planRosterImport(parsed, []),
   );
@@ -121,7 +123,7 @@ describe("admin roster auth", () => {
 });
 
 describe("GET /api/admin30910/roster", () => {
-  it("lists entries with the last import", async () => {
+  it("lists entries with the last import and check-in state", async () => {
     store.listRosterEntries.mockResolvedValue([{ id: "a", name: "甲" }]);
     store.readLastImport.mockResolvedValue({ importedAt: "2026-10-26T00:00:00.000Z" });
 
@@ -132,7 +134,23 @@ describe("GET /api/admin30910/roster", () => {
     expect(await response.json()).toEqual({
       entries: [{ id: "a", name: "甲" }],
       lastImport: { importedAt: "2026-10-26T00:00:00.000Z" },
+      checkIn: { open: false, updatedAt: null },
     });
+  });
+
+  it("never shows staff a guest's portrait link", async () => {
+    store.listRosterEntries.mockResolvedValue([
+      {
+        id: "a",
+        name: "甲",
+        portraitAccessToken: "secret-token",
+        portraitAccessExpiresAt: "2026-11-17T00:00:00.000Z",
+      },
+    ]);
+
+    const payload = await (await GET(adminRequest(BASE))).json();
+
+    expect(payload.entries).toEqual([{ id: "a", name: "甲" }]);
   });
 
   it("explains when Firebase is not connected", async () => {

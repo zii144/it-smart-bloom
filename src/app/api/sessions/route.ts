@@ -1,5 +1,4 @@
 import { after } from "next/server";
-import QRCode from "qrcode";
 import { isFirebaseConfigured } from "@/lib/firebase-admin";
 import { generateImage } from "@/lib/generate-image";
 import {
@@ -9,6 +8,11 @@ import {
 import { archiveSessionCreated } from "@/lib/portrait-archive";
 import { GuestRosterError, matchGuestOnRoster } from "@/lib/roster-guest";
 import { RosterUnavailableError } from "@/lib/roster-store";
+import {
+  brandedQrDataUrl,
+  sessionShareUrl,
+  shareBaseUrl,
+} from "@/lib/session-share";
 import { isImageTuningEnabled } from "@/lib/runtime-env";
 import {
   createSession,
@@ -91,19 +95,11 @@ export async function POST(request: Request) {
       });
     }
 
-    const requestOrigin = new URL(request.url).origin;
-    const configuredBaseUrl = process.env.APP_BASE_URL?.trim();
-    const baseUrl = (configuredBaseUrl || requestOrigin).replace(/\/+$/, "");
-    const sessionUrl = `${baseUrl}/s/${session.id}`;
-    const qrDataUrl = await QRCode.toDataURL(sessionUrl, {
-      width: 640,
-      margin: 2,
-      color: {
-        dark: "#142c22",
-        light: "#fffdf7",
-      },
-      errorCorrectionLevel: "M",
-    });
+    const sessionUrl = sessionShareUrl(
+      shareBaseUrl(new URL(request.url).origin),
+      session.id,
+    );
+    const qrDataUrl = await brandedQrDataUrl(sessionUrl);
 
     return Response.json(
       {

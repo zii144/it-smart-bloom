@@ -1,6 +1,7 @@
 import type { GuestIdentity } from "@/lib/guest-identity";
 import { identityStorageKey } from "@/lib/guest-identity";
 import { getBucket, getDb, isFirebaseConfigured } from "@/lib/firebase-admin";
+import { recordRosterPortrait } from "@/lib/roster-store";
 import type { ImageSession, SessionStatus } from "@/lib/sessions";
 
 export type ArchiveRecord = {
@@ -36,6 +37,21 @@ function sessionDoc(sessionId: string) {
   const db = getDb();
   if (!db) return null;
   return db.collection("sessions").doc(sessionId);
+}
+
+/**
+ * Best effort: the roster's portrait column is a convenience for the admin
+ * check-in view and must never fail the session it describes.
+ */
+async function mirrorPortraitToRoster(session: ImageSession, isNewSession: boolean) {
+  if (!session.rosterEntryId) return;
+  try {
+    await recordRosterPortrait(session.rosterEntryId, session.id, session.status, {
+      isNewSession,
+    });
+  } catch (error) {
+    console.error("Failed to mirror portrait status to roster:", error);
+  }
 }
 
 function identityDoc(identityKey: string) {
@@ -120,6 +136,7 @@ export async function archiveSessionCreated(session: ImageSession, input: {
   };
 
   await sessionDoc(session.id)?.set(record, { merge: true });
+  await mirrorPortraitToRoster(session, true);
 
   if (identity && identityKey) {
     const ref = identityDoc(identityKey);
@@ -186,6 +203,7 @@ export async function archiveSessionStatus(
     },
     { merge: true },
   );
+  await mirrorPortraitToRoster(session, false);
 }
 
 export async function claimSessionIdentity(
