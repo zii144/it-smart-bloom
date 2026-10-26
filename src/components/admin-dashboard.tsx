@@ -1,9 +1,11 @@
 "use client";
 
-import { useEffect, useState, type ReactNode } from "react";
+import { useCallback, useEffect, useState, type ReactNode } from "react";
 import { AdminBatchPanel } from "@/components/admin-batch-panel";
+import { AdminRosterPanel } from "@/components/admin-roster-panel";
 import { BloomMark } from "@/components/brand";
 import type { ImageGenerationOptions } from "@/lib/image-options";
+import type { RosterEntry } from "@/lib/roster";
 import type { SpendSnapshot } from "@/lib/image-spend";
 
 export type AdminSessionRow = {
@@ -13,6 +15,7 @@ export type AdminSessionRow = {
   updatedAt: string;
   identity: string | null;
   avatarRequestStatus: string | null;
+  rosterEntryId: string | null;
   fakeGenerate: boolean | null;
   source: string | null;
   error: string | null;
@@ -183,14 +186,31 @@ function FlipPortrait({
   );
 }
 
+/** Who made the portrait: roster name when linked, else the legacy identity. */
+function sessionGuestLabel(
+  row: AdminSessionRow,
+  rosterNames: ReadonlyMap<string, string> | null,
+) {
+  if (row.source === "admin-batch") return "批次生成";
+  if (row.rosterEntryId) {
+    if (!rosterNames) return "名單比對成功";
+    return rosterNames.has(row.rosterEntryId)
+      ? `名單：${rosterNames.get(row.rosterEntryId)}`
+      : "名單資料已刪除";
+  }
+  return localizeIdentity(row.identity);
+}
+
 function SessionPanel({
   title,
   rows,
   empty,
+  rosterNames,
 }: {
   title: string;
   rows: AdminSessionRow[];
   empty: string;
+  rosterNames: ReadonlyMap<string, string> | null;
 }) {
   const [page, setPage] = useState(0);
   const pageCount = Math.max(1, Math.ceil(rows.length / ROWS_PER_PAGE));
@@ -227,11 +247,7 @@ function SessionPanel({
                 </div>
                 <div className="admin-session-meta">
                   <span>{formatWhen(row.createdAt)}</span>
-                  <span>
-                    {row.source === "admin-batch"
-                      ? "批次生成"
-                      : localizeIdentity(row.identity)}
-                  </span>
+                  <span>{sessionGuestLabel(row, rosterNames)}</span>
                   {row.fakeGenerate === true && <span>假生成</span>}
                   {row.avatarRequestStatus && (
                     <span>
@@ -311,7 +327,13 @@ export function AdminDashboard({
 }) {
   const [data, setData] = useState(initial);
   const [error, setError] = useState<string | null>(null);
-  const [tab, setTab] = useState<"overview" | "batch">("overview");
+  const [tab, setTab] = useState<"overview" | "roster" | "batch">("overview");
+  const [rosterNames, setRosterNames] = useState<Map<string, string> | null>(
+    null,
+  );
+  const handleRosterEntries = useCallback((entries: RosterEntry[]) => {
+    setRosterNames(new Map(entries.map((entry) => [entry.id, entry.name])));
+  }, []);
 
   useEffect(() => {
     let cancelled = false;
@@ -371,6 +393,14 @@ export function AdminDashboard({
           onClick={() => setTab("overview")}
         >
           現場總覽
+        </button>
+        <button
+          type="button"
+          className={tab === "roster" ? "is-active" : undefined}
+          aria-pressed={tab === "roster"}
+          onClick={() => setTab("roster")}
+        >
+          名單管理
         </button>
         <button
           type="button"
@@ -495,13 +525,19 @@ export function AdminDashboard({
           title="資料庫"
           rows={data.archiveSessions}
           empty="尚無封存資料（或 Firebase 未連線）。"
+          rosterNames={rosterNames}
         />
         <SessionPanel
           title="本機磁碟"
           rows={data.localSessions}
           empty="尚無本機 session 資料夾。"
+          rosterNames={rosterNames}
         />
       </div>
+      </div>
+
+      <div className="admin-tabpanel" hidden={tab !== "roster"}>
+        <AdminRosterPanel onEntriesChange={handleRosterEntries} />
       </div>
 
       <div className="admin-tabpanel" hidden={tab !== "batch"}>
