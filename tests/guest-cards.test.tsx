@@ -30,23 +30,27 @@ const RUNDOWN =
 const READY: SuccessView = {
   kind: "ready",
   guestName: "王小美",
-  seat: "A1",
   rundownUrl: RUNDOWN,
   rundownQrDataUrl: "data:image/png;base64,AAAA",
 };
 
 describe("SuccessCard", () => {
-  it("confirms the photo, shows the seat and points the QR at the rundown", () => {
+  it("confirms the photo and points the QR and the link at the rundown", () => {
     const { container, getByText } = render(<SuccessCard view={READY} />);
 
     expect(container.querySelector(".celebration-name")?.textContent).toBe("王小美");
     expect(getByText("照片已經收到")).toBeTruthy();
     expect(getByText("活動當天報到後，即可領取您的似顏繪")).toBeTruthy();
-    expect(container.querySelector(".celebration-seat")?.textContent).toBe("A1");
     expect(container.querySelector('img[alt="活動流程 QR Code"]')?.getAttribute("src")).toBe(
       READY.rundownQrDataUrl,
     );
-    expect(getByText("開啟活動流程").getAttribute("href")).toBe(RUNDOWN);
+    expect(getByText("或按此開啟活動流程").getAttribute("href")).toBe(RUNDOWN);
+  });
+
+  it("shows the event time with check-in opening, and no seat (QA)", () => {
+    const { container } = render(<SuccessCard view={READY} />);
+    expect(container.textContent).toContain("14:00–15:3013:10分開始報到");
+    expect(container.textContent).not.toContain("座位");
   });
 
   it("never hands out the portrait or its links", () => {
@@ -66,10 +70,9 @@ describe("SuccessCard", () => {
     expect(container.textContent).not.toContain("賀");
   });
 
-  it("still works without a roster name or seat", () => {
-    const { container } = render(<SuccessCard view={{ ...READY, guestName: null, seat: "" }} />);
+  it("still works without a roster name", () => {
+    const { container } = render(<SuccessCard view={{ ...READY, guestName: null }} />);
     expect(container.querySelector(".celebration-name")).toBeNull();
-    expect(container.querySelector(".celebration-seat")).toBeNull();
     expect(container.textContent).toContain("照片已經收到");
   });
 

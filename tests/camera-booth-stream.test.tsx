@@ -2,6 +2,15 @@
 import { cleanup, fireEvent, render, waitFor } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { CameraBooth } from "@/components/camera-booth";
+import { INITIAL_CROP } from "@/lib/photo-crop";
+
+const { renderCroppedMock } = vi.hoisted(() => ({ renderCroppedMock: vi.fn() }));
+
+// jsdom cannot decode or draw images; the crop itself is tested on its own.
+vi.mock("@/lib/photo-crop", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("@/lib/photo-crop")>()),
+  renderCroppedPhoto: renderCroppedMock,
+}));
 
 vi.mock("next/image", () => ({
   default: (props: Record<string, unknown>) => {
@@ -77,6 +86,8 @@ async function enterCameraBooth(container: HTMLElement) {
 let verifyFetch: ReturnType<typeof vi.fn>;
 
 beforeEach(() => {
+  renderCroppedMock.mockReset();
+  renderCroppedMock.mockResolvedValue(new Blob(["cropped"], { type: "image/jpeg" }));
   verifyFetch = vi.fn(async () => Response.json({ matched: true }));
   vi.stubGlobal("fetch", verifyFetch);
   window.localStorage.clear();
@@ -116,6 +127,9 @@ describe("CameraBooth stream attachment", () => {
     ).toBeTruthy();
     expect(container.textContent).toContain("敬邀蒞臨");
     expect(container.textContent).not.toContain("開啟相機");
+    // QA: check-in opens before the programme; no header badge.
+    expect(container.textContent).toContain("14:00–15:3013:10分開始報到");
+    expect(container.textContent).not.toContain("私人創作空間");
 
     enterBooth(container);
 
@@ -151,7 +165,7 @@ describe("CameraBooth stream attachment", () => {
     expect(container.textContent).not.toContain("就選這張嗎");
   });
 
-  it("previews a valid uploaded image once the guest is on the roster", async () => {
+  it("lets the guest frame a valid uploaded image once they are on the roster", async () => {
     const { container } = render(<CameraBooth />);
     enterBooth(container);
 
@@ -168,9 +182,12 @@ describe("CameraBooth stream attachment", () => {
     fireEvent.click(container.querySelector("button.guest-entry-submit")!);
 
     await waitFor(() => expect(container.textContent).toContain("就選這張嗎"));
+    // The upload opens in the framing tool: drag, zoom slider and reset.
     expect(
-      container.querySelector('img[alt="你剛拍下的人像照片"]'),
+      container.querySelector('.photo-cropper-frame img[alt="你選擇的人像照片"]'),
     ).toBeTruthy();
+    expect(container.querySelector('input[type="range"][aria-label="縮放照片"]')).toBeTruthy();
+    expect(container.textContent).toContain("重新選擇照片");
     expect(verifyFetch).toHaveBeenCalledWith(
       "/api/roster/verify",
       expect.objectContaining({
@@ -219,6 +236,49 @@ describe("CameraBooth stream attachment", () => {
       const body = sessionCall.body as FormData;
       expect(body.get("name")).toBe("張小明");
       expect(body.get("phone")).toBe("0912345678");
+      // What is sent is the square the guest framed, not the original file.
+      expect(renderCroppedMock).toHaveBeenCalledWith("blob:portrait-preview", INITIAL_CROP);
+      expect(await (body.get("image") as File).text()).toBe("cropped");
+    } finally {
+      Object.defineProperty(window, "location", { configurable: true, value: realLocation });
+    }
+  });
+
+  it("still sends the whole photo if it cannot be cropped", async () => {
+    renderCroppedMock.mockRejectedValue(new Error("photo could not be read"));
+    vi.spyOn(console, "warn").mockImplementation(() => {});
+    verifyFetch.mockImplementation(async (url: string) =>
+      url === "/api/sessions"
+        ? Response.json({ id: "sess-456" }, { status: 201 })
+        : Response.json({ matched: true }),
+    );
+    const assign = vi.fn();
+    const realLocation = window.location;
+    Object.defineProperty(window, "location", {
+      configurable: true,
+      value: { ...realLocation, assign },
+    });
+
+    try {
+      const { container } = render(<CameraBooth />);
+      enterBooth(container);
+      fillGuestDetails(container);
+      fireEvent.change(container.querySelector('input[type="file"]')!, {
+        target: {
+          files: [new File(["original"], "portrait.jpg", { type: "image/jpeg" })],
+        },
+      });
+      fireEvent.click(container.querySelector("button.guest-entry-submit")!);
+      await waitFor(() => expect(container.textContent).toContain("就選這張嗎"));
+      fireEvent.click(
+        [...container.querySelectorAll("button")].find((button) =>
+          button.textContent?.includes("使用這張照片"),
+        )!,
+      );
+
+      await waitFor(() => expect(assign).toHaveBeenCalledWith("/success/sess-456"));
+      const [, sessionCall] = verifyFetch.mock.calls.find(([url]) => url === "/api/sessions")!;
+      expect(await ((sessionCall.body as FormData).get("image") as File).text()).toBe("original");
     } finally {
       Object.defineProperty(window, "location", { configurable: true, value: realLocation });
     }

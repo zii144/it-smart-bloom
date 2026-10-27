@@ -1206,13 +1206,6 @@ select:focus-visible {
   margin: 0;
 }
 
-.invitation-details dd.celebration-seat {
-  color: var(--coral-dark);
-  font-size: 1.5em;
-  letter-spacing: 0.08em;
-  line-height: 1;
-}
-
 .celebration-status {
   display: inline-flex;
   align-items: center;
@@ -2555,6 +2548,77 @@ select:focus-visible {
 .mobile-result img,
 .source-photo-wrap img {
   object-fit: cover;
+}
+
+/* Upload framing: the photo is dragged and zoomed under a fixed frame. */
+.photo-cropper {
+  display: grid;
+  justify-items: center;
+  gap: 14px;
+}
+
+.photo-cropper-frame {
+  cursor: grab;
+  touch-action: none;
+  user-select: none;
+  -webkit-user-select: none;
+  -webkit-touch-callout: none;
+}
+
+.photo-cropper-frame:active {
+  cursor: grabbing;
+}
+
+.photo-cropper-frame:focus-visible {
+  outline: 3px solid var(--coral);
+  outline-offset: 4px;
+}
+
+.photo-cropper-frame img {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  max-width: none;
+  height: 100%;
+  pointer-events: none;
+}
+
+/* Once its size is known the photo is placed by inline percentages. */
+.photo-cropper-frame img.is-placed {
+  inset: auto;
+  object-fit: fill;
+}
+
+/* The face goes in the circle; the corners are still part of the photo. */
+.photo-cropper-guide {
+  position: absolute;
+  inset: 6%;
+  border-radius: 50%;
+  box-shadow:
+    0 0 0 999px rgba(16, 32, 27, 0.3),
+    inset 0 0 0 2px rgba(255, 253, 247, 0.85);
+  pointer-events: none;
+}
+
+.photo-cropper-controls {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  width: min(50vh, 440px, 76vw);
+  color: var(--ink-soft);
+  font-size: 15px;
+  font-weight: 700;
+}
+
+.photo-cropper-controls input[type="range"] {
+  flex: 1;
+  min-width: 0;
+  accent-color: var(--coral);
+}
+
+.photo-cropper-controls .photo-cropper-reset {
+  margin-top: 0;
+  padding: 6px 10px;
 }
 
 .review-actions {

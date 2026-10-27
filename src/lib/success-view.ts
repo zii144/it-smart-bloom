@@ -20,8 +20,8 @@ export async function loadSuccessView(sessionId: string): Promise<SuccessView> {
   if (isSessionExpired(session)) return { kind: "expired" };
 
   // The greeting is a nicety: a deleted entry or a Firestore hiccup still
-  // shows the card, just without the name and seat.
-  let guest: { name: string; seat: string } | null = null;
+  // shows the card, just without the name.
+  let guest: { name: string } | null = null;
   if (session.rosterEntryId) {
     try {
       guest = await readRosterGuest(session.rosterEntryId);
@@ -33,7 +33,6 @@ export async function loadSuccessView(sessionId: string): Promise<SuccessView> {
   return {
     kind: "ready",
     guestName: guest?.name ?? null,
-    seat: guest?.seat ?? "",
     rundownUrl: EVENT_RUNDOWN_URL,
     rundownQrDataUrl: await brandedQrDataUrl(EVENT_RUNDOWN_URL),
   };
