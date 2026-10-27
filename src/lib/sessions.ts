@@ -507,6 +507,31 @@ export async function purgeExpiredSessions(now = Date.now()) {
   return removed;
 }
 
+/**
+ * Admin data reset: removes every local session copy on this instance. Only
+ * directories named like a session id are touched, never the root itself.
+ */
+export async function deleteAllLocalSessions() {
+  const root = sessionsRoot();
+
+  let entries;
+  try {
+    entries = await readdir(root, { withFileTypes: true });
+  } catch {
+    return 0;
+  }
+
+  const sessions = entries.filter(
+    (entry) => entry.isDirectory() && SESSION_ID_PATTERN.test(entry.name),
+  );
+  await Promise.all(
+    sessions.map((entry) =>
+      rm(path.join(root, entry.name), { recursive: true, force: true }),
+    ),
+  );
+  return sessions.length;
+}
+
 async function isExpiredSessionDirectory(directory: string, now: number) {
   try {
     const metadata = JSON.parse(
