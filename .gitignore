@@ -34,6 +34,14 @@ yarn-error.log*
 # env files (including .env.example — keep secrets and templates local)
 .env*
 
+# Firebase / Google service-account keys (GOOGLE_APPLICATION_CREDENTIALS).
+# Keep them outside the repo; these rules catch one dropped in by mistake.
+*-firebase-adminsdk-*.json
+*adminsdk*.json
+service-account*.json
+serviceAccount*.json
+*-credentials.json
+
 # temporary image sessions
 /.data/
 

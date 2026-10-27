@@ -145,8 +145,31 @@ entrance) with the same 姓名 + 手機 match as the booth. They get a joyful
   (`portraitStatus`) and the portrait token are stored on the guest's
   `roster` entry. Imports and admin edits never overwrite them.
 
-Store integration tests run against a dedicated emulator on port 8181, so
-they never touch the dev emulator's data:
+### Data reset (資料重置)
+
+The admin dashboard's **資料重置** tab clears data by category:
+
+| Category | Clears | Keeps |
+|---|---|---|
+| 名單 | every roster entry, the last-import record | portraits, usage |
+| 報到紀錄 | arrival times and sources, portrait links | guests, portraits |
+| 似顏繪 | `sessions` and `identities` docs, `sessions/` and `identities/` in Storage, local copies, each guest's portrait status | guests, arrivals |
+| 用量統計 | the `usage` daily counters | everything else |
+
+Safeguards:
+- **Backup first.** The browser first downloads a JSON backup of everything
+  the reset will change. If the backup fails, nothing is reset. Storage
+  photos are not in the backup.
+- **Typed confirmation.** The admin must type 「確認重置」, and the server
+  checks it too.
+- **Clear environment label.** The tab shows whether it is connected to
+  **正式環境** (live) or the emulator. It works in production.
+- **Logged.** Every reset is recorded in `adminLog` (time, categories,
+  counts, environment); no reset ever deletes that log.
+- Resetting 名單 or 報到紀錄 also closes check-in.
+
+Store and flow integration tests run against dedicated emulators (Firestore
+8181, Storage 9299), so they never touch the dev emulator's data:
 
 ```bash
 npm run test:emulator

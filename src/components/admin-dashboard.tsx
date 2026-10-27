@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useState, type ReactNode } from "react";
 import { AdminBatchPanel } from "@/components/admin-batch-panel";
 import { AdminCheckInPanel } from "@/components/admin-check-in-panel";
+import { AdminResetPanel } from "@/components/admin-reset-panel";
 import { AdminRosterPanel } from "@/components/admin-roster-panel";
 import { BloomMark } from "@/components/brand";
 import { formatTaipeiShort } from "@/lib/event-info";
@@ -321,9 +322,11 @@ export function AdminDashboard({
 }) {
   const [data, setData] = useState(initial);
   const [error, setError] = useState<string | null>(null);
-  const [tab, setTab] = useState<"overview" | "roster" | "check-in" | "batch">(
-    "overview",
-  );
+  const [tab, setTab] = useState<
+    "overview" | "roster" | "check-in" | "batch" | "reset"
+  >("overview");
+  // Bumped after a data reset so the roster and check-in tabs reload.
+  const [dataEpoch, setDataEpoch] = useState(0);
   const [rosterNames, setRosterNames] = useState<Map<string, string> | null>(
     null,
   );
@@ -413,6 +416,14 @@ export function AdminDashboard({
           onClick={() => setTab("batch")}
         >
           批次生成
+        </button>
+        <button
+          type="button"
+          className={`admin-tab-danger${tab === "reset" ? " is-active" : ""}`}
+          aria-pressed={tab === "reset"}
+          onClick={() => setTab("reset")}
+        >
+          資料重置
         </button>
       </nav>
 
@@ -541,11 +552,11 @@ export function AdminDashboard({
       </div>
 
       <div className="admin-tabpanel" hidden={tab !== "roster"}>
-        <AdminRosterPanel onEntriesChange={handleRosterEntries} />
+        <AdminRosterPanel key={dataEpoch} onEntriesChange={handleRosterEntries} />
       </div>
 
       <div className="admin-tabpanel" hidden={tab !== "check-in"}>
-        <AdminCheckInPanel active={tab === "check-in"} />
+        <AdminCheckInPanel key={dataEpoch} active={tab === "check-in"} />
       </div>
 
       <div className="admin-tabpanel" hidden={tab !== "batch"}>
@@ -555,6 +566,13 @@ export function AdminDashboard({
           hasOpenAiPrompt={health.hasOpenAiPrompt}
           imageTuning={health.imageTuning}
           spend={data.spend}
+        />
+      </div>
+
+      <div className="admin-tabpanel" hidden={tab !== "reset"}>
+        <AdminResetPanel
+          active={tab === "reset"}
+          onReset={() => setDataEpoch((epoch) => epoch + 1)}
         />
       </div>
     </AdminChrome>
