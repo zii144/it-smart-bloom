@@ -14,6 +14,7 @@ import { POST as createSessionRoute } from "@/app/api/sessions/route";
 import { firebasePublicConfig } from "@/lib/firebase-public-config";
 import { parseRosterInput } from "@/lib/roster";
 import {
+  allowPhotoResubmission,
   createRosterEntry,
   listRosterEntries,
   setCheckInOpen,
@@ -22,8 +23,21 @@ import { deleteSession, getSession } from "@/lib/sessions";
 import { loadSuccessView } from "@/lib/success-view";
 import { imageFile } from "./helpers";
 
-const { afterMock } = vi.hoisted(() => ({ afterMock: vi.fn() }));
+const { afterMock, openAiEditMock } = vi.hoisted(() => ({
+  afterMock: vi.fn(),
+  openAiEditMock: vi.fn(),
+}));
 vi.mock("next/server", () => ({ after: afterMock }));
+// Real generation never reaches the network here: OpenAI is a stub.
+vi.mock("openai", () => {
+  class FakeOpenAI {
+    images = { edit: openAiEditMock };
+  }
+  return {
+    default: FakeOpenAI,
+    toFile: vi.fn(async (bytes: Buffer, name: string) => ({ bytes, name })),
+  };
+});
 
 const TEST_EMULATOR_HOST = "127.0.0.1:8181";
 const emulatorHost = process.env.FIRESTORE_EMULATOR_HOST;
@@ -136,6 +150,89 @@ describe.skipIf(emulatorHost !== TEST_EMULATOR_HOST)("event-day guest flows", ()
 
     const [entry] = (await listRosterEntries()).filter((e) => e.name === "測試甲");
     expect(entry).toMatchObject({ checkInSource: "self", portraitStatus: "complete" });
+  });
+
+  it("one photo per guest: a second submission is refused until an admin allows it", async () => {
+    expect((await submitPhoto(GUEST_WITH_PHOTO)).status).toBe(201);
+
+    // The booth tells them before they pick another photo…
+    const verify = await verifyGuest(json("http://x/api/roster/verify", GUEST_WITH_PHOTO));
+    expect(verify.status).toBe(409);
+    expect(await verify.json()).toMatchObject({ alreadySubmitted: true });
+    // …and the API refuses it even when called directly.
+    const second = await submitPhoto(GUEST_WITH_PHOTO);
+    expect(second.status).toBe(409);
+    expect((await second.json()).error).toContain("每位來賓限一次");
+
+    // Another guest is unaffected.
+    expect((await submitPhoto(GUEST_WITHOUT_PHOTO)).status).toBe(201);
+
+    // Admin unlocks exactly one more.
+    const [entry] = (await listRosterEntries()).filter((e) => e.name === "測試甲");
+    await allowPhotoResubmission(entry!.id);
+    expect((await verifyGuest(json("http://x/api/roster/verify", GUEST_WITH_PHOTO))).status).toBe(200);
+    const again = await submitPhoto(GUEST_WITH_PHOTO);
+    expect(again.status).toBe(201);
+    expect((await submitPhoto(GUEST_WITH_PHOTO)).status).toBe(409);
+
+    // The newest submission is the one handed over at check-in.
+    const { id: newestId } = (await again.json()) as { id: string };
+    await finishRendering();
+    const [after] = (await listRosterEntries()).filter((e) => e.name === "測試甲");
+    expect(after?.portraitSessionId).toBe(newestId);
+  });
+
+  it("a portrait that fails to generate gives the guest their submission back", async () => {
+    // What production hit: OpenAI rejects the key mid-render.
+    openAiEditMock.mockRejectedValueOnce(
+      Object.assign(new Error("401 Incorrect API key provided"), { status: 401 }),
+    );
+    const body = new FormData();
+    body.set("image", imageFile());
+    body.set("name", GUEST_WITH_PHOTO.name);
+    body.set("phone", GUEST_WITH_PHOTO.phone);
+    // Real (not fake) generation, so it actually runs and fails.
+    body.set("imageOptions", JSON.stringify({ fakeGenerate: false }));
+    const created = await createSessionRoute(
+      new Request("https://it-smart-bloom.vercel.app/api/sessions", { method: "POST", body }),
+    );
+    expect(created.status).toBe(201);
+    const { id } = (await created.json()) as { id: string };
+    await finishRendering();
+    expect((await getSession(id)).status).toBe("failed");
+
+    const [entry] = (await listRosterEntries()).filter((e) => e.name === "測試甲");
+    expect(entry).toMatchObject({ portraitStatus: "failed", photoSubmittedAt: null });
+    expect((await verifyGuest(json("http://x/api/roster/verify", GUEST_WITH_PHOTO))).status).toBe(200);
+
+    // They can try again, and a finished portrait then uses it up.
+    const retry = await submitPhoto(GUEST_WITH_PHOTO);
+    expect(retry.status).toBe(201);
+    await finishRendering();
+    expect((await submitPhoto(GUEST_WITH_PHOTO)).status).toBe(409);
+  });
+
+  it("one photo per guest holds when two phones submit at the same moment", async () => {
+    const results = await Promise.all([
+      submitPhoto(GUEST_WITH_PHOTO),
+      submitPhoto(GUEST_WITH_PHOTO),
+      submitPhoto(GUEST_WITH_PHOTO),
+    ]);
+    const statuses = results.map((response) => response.status).sort();
+    expect(statuses).toEqual([201, 409, 409]);
+  });
+
+  it("a photo that cannot be stored does not use up the submission", async () => {
+    const tooBig = new FormData();
+    tooBig.set("image", new File([new Uint8Array(13 * 1024 * 1024)], "big.jpg", { type: "image/jpeg" }));
+    tooBig.set("name", GUEST_WITH_PHOTO.name);
+    tooBig.set("phone", GUEST_WITH_PHOTO.phone);
+    const failed = await createSessionRoute(
+      new Request("https://it-smart-bloom.vercel.app/api/sessions", { method: "POST", body: tooBig }),
+    );
+    expect(failed.status).toBe(413);
+
+    expect((await submitPhoto(GUEST_WITH_PHOTO)).status).toBe(201);
   });
 
   it("case 2: on the roster without a photo → check in → done, nothing to collect", async () => {

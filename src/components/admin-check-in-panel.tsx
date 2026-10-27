@@ -3,7 +3,7 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { buildCheckInCsv, portraitLabel } from "@/lib/check-in-csv";
 import { formatTaipeiTime } from "@/lib/event-info";
-import type { RosterEntry } from "@/lib/roster";
+import { hasSubmittedPhoto, type RosterEntry } from "@/lib/roster";
 
 type CheckInSettings = { open: boolean; updatedAt: string | null };
 type Filter = "all" | "arrived" | "waiting";
@@ -66,6 +66,7 @@ export function AdminCheckInPanel({ active }: { active: boolean }) {
   const [query, setQuery] = useState("");
   const [busyId, setBusyId] = useState<string | null>(null);
   const [confirmUndoId, setConfirmUndoId] = useState<string | null>(null);
+  const [confirmResubmitId, setConfirmResubmitId] = useState<string | null>(null);
   const [toggling, setToggling] = useState(false);
   const [refreshedAt, setRefreshedAt] = useState<string | null>(null);
 
@@ -156,6 +157,26 @@ export function AdminCheckInPanel({ active }: { active: boolean }) {
       setError(caught instanceof Error ? caught.message : "無法切換報到狀態。");
     } finally {
       setToggling(false);
+    }
+  }
+
+  /** Lifts the one-photo limit; each extra submission is another generation. */
+  async function allowResubmit(entry: RosterEntry) {
+    setBusyId(entry.id);
+    setError(null);
+    try {
+      const response = await fetch(`/api/admin30910/roster/${entry.id}/submission`, {
+        method: "DELETE",
+        credentials: "same-origin",
+      });
+      if (!response.ok) throw new Error(await readError(response));
+      setNotice(`已允許 ${entry.name} 重新上傳照片。`);
+      setConfirmResubmitId(null);
+      await reload();
+    } catch (caught) {
+      setError(caught instanceof Error ? caught.message : "無法開放重新上傳。");
+    } finally {
+      setBusyId(null);
     }
   }
 
@@ -300,7 +321,36 @@ export function AdminCheckInPanel({ active }: { active: boolean }) {
               >
                 似顏繪：{portraitLabel(entry)}
               </span>
+              <span
+                className={`admin-check-in-chip${hasSubmittedPhoto(entry) ? " is-submitted" : ""}`}
+              >
+                {hasSubmittedPhoto(entry) ? "已上傳照片" : "可上傳照片"}
+              </span>
               <div className="admin-roster-actions">
+                {hasSubmittedPhoto(entry) &&
+                  (confirmResubmitId === entry.id ? (
+                    <>
+                      <button
+                        type="button"
+                        className="is-danger"
+                        disabled={busyId === entry.id}
+                        onClick={() => void allowResubmit(entry)}
+                      >
+                        確定開放
+                      </button>
+                      <button type="button" onClick={() => setConfirmResubmitId(null)}>
+                        不用
+                      </button>
+                    </>
+                  ) : (
+                    <button
+                      type="button"
+                      title="每位來賓限上傳一次；開放後可再上傳一張（會再生成一次）"
+                      onClick={() => setConfirmResubmitId(entry.id)}
+                    >
+                      允許重新上傳
+                    </button>
+                  ))}
                 {!entry.checkedInAt ? (
                   <button
                     type="button"

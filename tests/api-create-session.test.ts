@@ -1,13 +1,24 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { POST } from "@/app/api/sessions/route";
-import { RosterUnavailableError } from "@/lib/roster-store";
+import {
+  PhotoAlreadySubmittedError,
+  RosterUnavailableError,
+} from "@/lib/roster-store";
 import { getSession } from "@/lib/sessions";
 import { imageFile, jpegBytes } from "./helpers";
 
-const { afterMock, generateImageMock, findRosterMatchMock } = vi.hoisted(() => ({
+const {
+  afterMock,
+  generateImageMock,
+  findRosterMatchMock,
+  reserveMock,
+  releaseMock,
+} = vi.hoisted(() => ({
   afterMock: vi.fn(),
   generateImageMock: vi.fn(),
   findRosterMatchMock: vi.fn(),
+  reserveMock: vi.fn(),
+  releaseMock: vi.fn(),
 }));
 
 vi.mock("next/server", () => ({ after: afterMock }));
@@ -15,6 +26,8 @@ vi.mock("@/lib/generate-image", () => ({ generateImage: generateImageMock }));
 vi.mock("@/lib/roster-store", async (importOriginal) => ({
   ...(await importOriginal<typeof import("@/lib/roster-store")>()),
   findRosterMatch: findRosterMatchMock,
+  reservePhotoSubmission: reserveMock,
+  releasePhotoSubmission: releaseMock,
 }));
 
 const GUEST = { name: "張小明", phone: "0912345678" };
@@ -51,6 +64,10 @@ beforeEach(() => {
   generateImageMock.mockResolvedValue(undefined);
   findRosterMatchMock.mockReset();
   findRosterMatchMock.mockResolvedValue({ id: "roster-1" });
+  reserveMock.mockReset();
+  reserveMock.mockResolvedValue("2026-11-10T06:00:00.000Z");
+  releaseMock.mockReset();
+  releaseMock.mockResolvedValue(undefined);
 });
 
 describe("POST /api/sessions", () => {
@@ -88,6 +105,35 @@ describe("POST /api/sessions", () => {
     expect(session.identity).toBeUndefined();
     expect(JSON.stringify(session)).not.toContain("0912345678");
     expect(JSON.stringify(session)).not.toContain("張小明");
+  });
+
+  it("claims the guest's one photo submission and keeps it on success", async () => {
+    const response = await POST(createRequest());
+
+    expect(response.status).toBe(201);
+    expect(reserveMock).toHaveBeenCalledWith("roster-1");
+    expect(releaseMock).not.toHaveBeenCalled();
+  });
+
+  it("refuses a second photo from the same guest before storing anything", async () => {
+    reserveMock.mockRejectedValue(new PhotoAlreadySubmittedError());
+
+    const response = await POST(createRequest());
+
+    expect(response.status).toBe(409);
+    expect(await response.json()).toMatchObject({
+      alreadySubmitted: true,
+      error: expect.stringContaining("每位來賓限一次"),
+    });
+    expect(afterMock).not.toHaveBeenCalled();
+    expect(releaseMock).not.toHaveBeenCalled();
+  });
+
+  it("gives the submission back when the photo cannot be stored", async () => {
+    const response = await POST(createRequest(imageFile(jpegBytes(13 * 1024 * 1024))));
+
+    expect(response.status).toBe(413);
+    expect(releaseMock).toHaveBeenCalledWith("roster-1", "2026-11-10T06:00:00.000Z");
   });
 
   it("refuses a guest who is not on the roster before storing anything", async () => {

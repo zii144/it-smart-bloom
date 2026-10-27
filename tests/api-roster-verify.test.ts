@@ -2,13 +2,15 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 import { POST } from "@/app/api/roster/verify/route";
 import { RosterUnavailableError } from "@/lib/roster-store";
 
-const { findRosterMatchMock } = vi.hoisted(() => ({
+const { findRosterMatchMock, isSubmittedMock } = vi.hoisted(() => ({
   findRosterMatchMock: vi.fn(),
+  isSubmittedMock: vi.fn(),
 }));
 
 vi.mock("@/lib/roster-store", async (importOriginal) => ({
   ...(await importOriginal<typeof import("@/lib/roster-store")>()),
   findRosterMatch: findRosterMatchMock,
+  isPhotoSubmitted: isSubmittedMock,
 }));
 
 function verify(body: unknown, ip = "203.0.113.7") {
@@ -23,6 +25,8 @@ function verify(body: unknown, ip = "203.0.113.7") {
 
 beforeEach(() => {
   findRosterMatchMock.mockReset();
+  isSubmittedMock.mockReset();
+  isSubmittedMock.mockResolvedValue(false);
 });
 
 describe("POST /api/roster/verify", () => {
@@ -34,6 +38,17 @@ describe("POST /api/roster/verify", () => {
     expect(response.status).toBe(200);
     expect(await response.json()).toEqual({ matched: true });
     expect(findRosterMatchMock).toHaveBeenCalledWith("張小明", "0912345678");
+  });
+
+  it("tells a guest who already submitted before they pick another photo", async () => {
+    findRosterMatchMock.mockResolvedValue({ id: "roster-1" });
+    isSubmittedMock.mockResolvedValue(true);
+
+    const response = await verify({ name: "張小明", phone: "0912345678" });
+
+    expect(response.status).toBe(409);
+    expect(await response.json()).toMatchObject({ alreadySubmitted: true });
+    expect(isSubmittedMock).toHaveBeenCalledWith("roster-1");
   });
 
   it("rejects a guest who is not on the roster", async () => {

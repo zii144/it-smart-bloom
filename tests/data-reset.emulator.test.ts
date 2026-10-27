@@ -138,6 +138,8 @@ describe.skipIf(emulatorHost !== TEST_EMULATOR_HOST)("admin data reset", () => {
     const roster = await listRosterEntries();
     expect(roster).toHaveLength(2);
     expect(roster.every((entry) => !entry.portraitStatus && !entry.portraitSessionId)).toBe(true);
+    // Their portraits are gone, so everyone may submit a photo again.
+    expect(roster.every((entry) => entry.photoSubmittedAt === null)).toBe(true);
     expect(roster.find((entry) => entry.name === "甲")?.checkedInAt).toBeTruthy();
     await expect(findPortraitByAccessToken(seeded.token)).resolves.toBeNull();
     // Check-in stays open: only a roster or check-in reset closes it.

@@ -1,11 +1,16 @@
 import { GuestRosterError, matchGuestOnRoster } from "@/lib/roster-guest";
-import { RosterUnavailableError } from "@/lib/roster-store";
+import {
+  isPhotoSubmitted,
+  PhotoAlreadySubmittedError,
+  RosterUnavailableError,
+} from "@/lib/roster-store";
 
 export const runtime = "nodejs";
 
 /**
- * Lets the booth tell a guest they are not on the roster before they pick a
- * photo. `POST /api/sessions` repeats the check, so skipping this call gains
+ * Lets the booth tell a guest they are not on the roster, or have already
+ * used their one photo submission (409), before they pick a photo.
+ * `POST /api/sessions` repeats both checks, so skipping this call gains
  * nothing. The reply never includes any roster data.
  */
 export async function POST(request: Request) {
@@ -14,10 +19,12 @@ export async function POST(request: Request) {
       name?: unknown;
       phone?: unknown;
     } | null;
-    await matchGuestOnRoster(request, {
+    const { rosterEntryId } = await matchGuestOnRoster(request, {
       name: body?.name,
       phone: body?.phone,
     });
+    // Tell a guest who already submitted before they pick another photo.
+    if (await isPhotoSubmitted(rosterEntryId)) throw new PhotoAlreadySubmittedError();
     return Response.json(
       { matched: true },
       { headers: { "Cache-Control": "no-store" } },
@@ -27,6 +34,12 @@ export async function POST(request: Request) {
       return Response.json(
         { error: error.message },
         { status: error.status, headers: { "Cache-Control": "no-store" } },
+      );
+    }
+    if (error instanceof PhotoAlreadySubmittedError) {
+      return Response.json(
+        { error: error.message, alreadySubmitted: true },
+        { status: 409, headers: { "Cache-Control": "no-store" } },
       );
     }
     if (error instanceof RosterUnavailableError) {

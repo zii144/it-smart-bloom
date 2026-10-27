@@ -191,6 +191,8 @@ export async function resetData(categories: ResetCategory[]): Promise<ResetLog> 
         portraitUpdatedAt: null,
         portraitAccessToken: null,
         portraitAccessExpiresAt: null,
+        // Their portraits are gone, so everyone may submit a photo again.
+        photoSubmittedAt: null,
       });
     }
     if (Object.keys(changes).length) {

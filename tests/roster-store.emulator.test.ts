@@ -16,6 +16,11 @@ import {
   deleteRosterEntry,
   findPortraitByAccessToken,
   findRosterMatch,
+  allowPhotoResubmission,
+  isPhotoSubmitted,
+  PhotoAlreadySubmittedError,
+  releasePhotoSubmission,
+  reservePhotoSubmission,
   listRosterEntries,
   readCheckInSettings,
   readLastImport,
@@ -262,6 +267,75 @@ describe.skipIf(emulatorHost !== TEST_EMULATOR_HOST)("roster-store on the Firest
     } finally {
       Date.now = realNow;
     }
+  });
+
+  it("tracks the one photo submission, including entries from before the rule", async () => {
+    const fresh = await createRosterEntry(person("甲", "0911111111"));
+    await expect(isPhotoSubmitted(fresh.id)).resolves.toBe(false);
+
+    const claim = await reservePhotoSubmission(fresh.id);
+    await expect(isPhotoSubmitted(fresh.id)).resolves.toBe(true);
+    await expect(reservePhotoSubmission(fresh.id)).rejects.toThrow(PhotoAlreadySubmittedError);
+
+    // Releasing someone else's (older) claim must not unlock a newer one.
+    await releasePhotoSubmission(fresh.id, "2000-01-01T00:00:00.000Z");
+    await expect(isPhotoSubmitted(fresh.id)).resolves.toBe(true);
+    await releasePhotoSubmission(fresh.id, claim);
+    await expect(isPhotoSubmitted(fresh.id)).resolves.toBe(false);
+
+    // A guest with a portrait from before the rule counts as submitted…
+    const legacy = await createRosterEntry(person("乙", "0922222222"));
+    await recordRosterPortrait(legacy.id, "old-session", "complete", { isNewSession: true });
+    await expect(isPhotoSubmitted(legacy.id)).resolves.toBe(true);
+    // …until an admin allows another.
+    await allowPhotoResubmission(legacy.id);
+    await expect(isPhotoSubmitted(legacy.id)).resolves.toBe(false);
+    await expect(allowPhotoResubmission("nope")).rejects.toThrow(RosterNotFoundError);
+  });
+
+  it("only finished portraits use up the submission", async () => {
+    const entry = await createRosterEntry(person("甲", "0911111111"));
+    await reservePhotoSubmission(entry.id);
+    await recordRosterPortrait(entry.id, "s1", "generating", { isNewSession: true });
+    await expect(isPhotoSubmitted(entry.id)).resolves.toBe(true);
+
+    // The render fails: the guest gets their submission back.
+    await recordRosterPortrait(entry.id, "s1", "failed", { isNewSession: false });
+    await expect(isPhotoSubmitted(entry.id)).resolves.toBe(false);
+
+    // A retry of that same session succeeds: it counts again.
+    await recordRosterPortrait(entry.id, "s1", "complete", { isNewSession: false });
+    await expect(isPhotoSubmitted(entry.id)).resolves.toBe(true);
+
+    // A late failure from an older session never unlocks a newer submission.
+    await allowPhotoResubmission(entry.id);
+    await reservePhotoSubmission(entry.id);
+    await recordRosterPortrait(entry.id, "s2", "ready", { isNewSession: true });
+    await recordRosterPortrait(entry.id, "s1", "failed", { isNewSession: false });
+    await expect(isPhotoSubmitted(entry.id)).resolves.toBe(true);
+  });
+
+  it("does not count a legacy portrait that failed", async () => {
+    const legacy = await createRosterEntry(person("乙", "0922222222"));
+    await recordRosterPortrait(legacy.id, "old", "generating", { isNewSession: true });
+    // Simulate an entry from before the rule: drop the flag the mirror wrote.
+    const { getDb } = await import("@/lib/firebase-admin");
+    const { FieldValue } = await import("firebase-admin/firestore");
+    await getDb()!.collection("roster").doc(legacy.id).update({
+      photoSubmittedAt: FieldValue.delete(),
+      portraitStatus: "failed",
+    });
+    await expect(isPhotoSubmitted(legacy.id)).resolves.toBe(false);
+  });
+
+  it("keeps the submission flag through admin edits and re-imports", async () => {
+    const entry = await createRosterEntry(person("甲", "0911111111", { seat: "A1" }));
+    await reservePhotoSubmission(entry.id);
+
+    await updateRosterEntry(entry.id, person("甲", "0911111111", { seat: "B2" }));
+    await applyRosterImport(sheet([["C3", "甲", "0911111111", null]]));
+
+    await expect(isPhotoSubmitted(entry.id)).resolves.toBe(true);
   });
 
   it("keeps arrival and portrait state through admin edits and re-imports", async () => {
