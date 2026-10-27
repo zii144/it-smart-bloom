@@ -260,13 +260,11 @@ describe.skipIf(emulatorHost !== TEST_EMULATOR_HOST)("roster-store on the Firest
 
     await recordRosterPortrait(entry.id, "sess-2", "complete", { isNewSession: false });
     const fresh = (await checkInRosterEntry(entry.id, "self")).portrait.accessToken!;
-    const realNow = Date.now;
-    Date.now = () => realNow() + 8 * 24 * 60 * 60 * 1000;
-    try {
-      await expect(findPortraitByAccessToken(fresh)).resolves.toBeNull();
-    } finally {
-      Date.now = realNow;
-    }
+    await expect(findPortraitByAccessToken(fresh)).resolves.not.toBeNull();
+    // Eight days later the 7-day link has lapsed. (Pass the time in rather than
+    // patching Date.now, which the Firestore client relies on internally.)
+    const eightDaysLater = Date.now() + 8 * 24 * 60 * 60 * 1000;
+    await expect(findPortraitByAccessToken(fresh, eightDaysLater)).resolves.toBeNull();
   });
 
   it("tracks the one photo submission, including entries from before the rule", async () => {

@@ -339,6 +339,7 @@ export async function checkInRosterEntry(
  */
 export async function findPortraitByAccessToken(
   token: string,
+  now = Date.now(),
 ): Promise<{ sessionId: string; name: string } | null> {
   if (!/^[A-Za-z0-9_-]{43}$/.test(token)) return null;
   const db = requireDb();
@@ -349,7 +350,7 @@ export async function findPortraitByAccessToken(
   const entry = snapshot.docs[0]?.data() as RosterEntryData | undefined;
   if (!entry?.portraitSessionId || entry.portraitStatus !== "complete") return null;
   const expiresAt = Date.parse(entry.portraitAccessExpiresAt ?? "");
-  if (!Number.isFinite(expiresAt) || expiresAt < Date.now()) return null;
+  if (!Number.isFinite(expiresAt) || expiresAt < now) return null;
   return { sessionId: entry.portraitSessionId, name: entry.name };
 }
 

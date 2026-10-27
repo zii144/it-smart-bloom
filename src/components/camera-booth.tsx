@@ -335,6 +335,7 @@ export function CameraBooth({
 
       // The success card is its own page; a full navigation also drops the
       // camera stream and any one-off "假生成" choice before the next guest.
+      // eslint-disable-next-line @next/next/no-location-assign-relative-destination -- full reload on purpose
       window.location.assign(`/success/${encodeURIComponent(payload.id)}`);
     } catch (caught) {
       setError(
@@ -347,6 +348,7 @@ export function CameraBooth({
   function startOver() {
     // Full navigation clears camera streams and session state so the next
     // guest always starts from a fresh booth.
+    // eslint-disable-next-line @next/next/no-location-assign-relative-destination -- full reload on purpose
     window.location.assign("/");
   }
 

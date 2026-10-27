@@ -54,6 +54,11 @@ export type ImageSession = {
   };
 };
 
+/**
+ * Session files live in a runtime data folder (`/tmp` on Vercel, `.data`
+ * locally). Calls built on it carry `turbopackIgnore` so the build does not
+ * trace the whole project into the server bundle.
+ */
 function sessionsRoot() {
   if (process.env.BLOOM_DATA_DIR?.trim()) {
     return path.resolve(process.env.BLOOM_DATA_DIR.trim());
@@ -78,7 +83,7 @@ function assertSessionId(id: string) {
 
 function sessionDirectory(id: string) {
   assertSessionId(id);
-  return path.join(sessionsRoot(), id);
+  return path.join(/*turbopackIgnore: true*/ sessionsRoot(), id);
 }
 
 function metadataPath(id: string) {
@@ -449,7 +454,7 @@ export async function listLocalSessions({ limit = 50 }: { limit?: number } = {})
 
   let entries;
   try {
-    entries = await readdir(root, { withFileTypes: true });
+    entries = await readdir(/*turbopackIgnore: true*/ root, { withFileTypes: true });
   } catch {
     return [] as ImageSession[];
   }
@@ -485,7 +490,7 @@ export async function purgeExpiredSessions(now = Date.now()) {
 
   let entries;
   try {
-    entries = await readdir(root, { withFileTypes: true });
+    entries = await readdir(/*turbopackIgnore: true*/ root, { withFileTypes: true });
   } catch {
     return 0;
   }
@@ -496,7 +501,7 @@ export async function purgeExpiredSessions(now = Date.now()) {
     entries.map(async (entry) => {
       if (!entry.isDirectory() || !SESSION_ID_PATTERN.test(entry.name)) return;
 
-      const directory = path.join(root, entry.name);
+      const directory = path.join(/*turbopackIgnore: true*/ root, entry.name);
       if (!(await isExpiredSessionDirectory(directory, now))) return;
 
       await rm(directory, { recursive: true, force: true });
@@ -516,7 +521,7 @@ export async function deleteAllLocalSessions() {
 
   let entries;
   try {
-    entries = await readdir(root, { withFileTypes: true });
+    entries = await readdir(/*turbopackIgnore: true*/ root, { withFileTypes: true });
   } catch {
     return 0;
   }
@@ -526,7 +531,7 @@ export async function deleteAllLocalSessions() {
   );
   await Promise.all(
     sessions.map((entry) =>
-      rm(path.join(root, entry.name), { recursive: true, force: true }),
+      rm(path.join(/*turbopackIgnore: true*/ root, entry.name), { recursive: true, force: true }),
     ),
   );
   return sessions.length;
