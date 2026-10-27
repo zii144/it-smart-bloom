@@ -110,6 +110,12 @@ Guests upload a photo after entering 姓名 + 手機. The on-site camera
 option (改用現場相機) is off. A staffed kiosk can turn it back on with
 `<CameraBooth cameraOption />`.
 
+On the 就選這張嗎？ step the guest frames the upload, like a LINE profile
+picture: drag to move it, and pinch, scroll or use the slider to zoom, with a
+circle guide for the face (`PhotoCropper`, maths in `src/lib/photo-crop.ts`).
+Only the framed square is sent, as a JPEG of at most 1280px, the same as a
+camera shot. If the browser cannot crop, the whole photo is sent instead.
+
 ### One photo per guest
 
 Each roster guest can submit **one** photo; that is one portrait generation.
@@ -135,8 +141,10 @@ Each roster guest can submit **one** photo; that is one portrait generation.
 
 After a guest confirms their photo, the booth goes to `/success/[session]`.
 This is an invitation-style card that greets the guest by roster name,
-confirms the photo was received, and shows their 座位 and the event details.
-Its QR code (and a tappable link) always opens the event rundown on Google
+confirms the photo was received, and shows the event details (time, with
+報到 opening at 13:10, and venue). It does not show the seat; the check-in
+card does. Its QR code (and the tappable 或按此開啟活動流程 link) always opens
+the event rundown on Google
 Drive (`EVENT_RUNDOWN_URL` in `src/lib/event-info.ts`). **The portrait is not
 handed out here.** A missing or expired session gets a friendly card instead
 of an error.

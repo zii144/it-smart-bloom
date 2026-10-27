@@ -381,10 +381,10 @@ describe.skipIf(emulatorHost !== TEST_EMULATOR_HOST)("roster-store on the Firest
     await expect(readRosterGuest(entry.id)).resolves.toBeNull();
   });
 
-  it("reads only name and seat for the success card", async () => {
+  it("reads only the name for the success card", async () => {
     const entry = await createRosterEntry(
       person("甲", "0911111111", { seat: "A9", address: "某市某路 1 號" }),
     );
-    await expect(readRosterGuest(entry.id)).resolves.toEqual({ name: "甲", seat: "A9" });
+    await expect(readRosterGuest(entry.id)).resolves.toEqual({ name: "甲" });
   });
 });

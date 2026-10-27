@@ -14,11 +14,11 @@ vi.mock("@/lib/roster-store", async (importOriginal) => ({
 
 beforeEach(() => {
   readRosterGuestMock.mockReset();
-  readRosterGuestMock.mockResolvedValue({ name: "王小美", seat: "A1" });
+  readRosterGuestMock.mockResolvedValue({ name: "王小美" });
 });
 
 describe("loadSuccessView", () => {
-  it("greets the roster guest with their seat and the event rundown QR", async () => {
+  it("greets the roster guest by name with the event rundown QR", async () => {
     const session = await createSession(imageFile(), undefined, undefined, {
       rosterEntryId: "roster-1",
     });
@@ -29,9 +29,10 @@ describe("loadSuccessView", () => {
     expect(view).toMatchObject({
       kind: "ready",
       guestName: "王小美",
-      seat: "A1",
       rundownUrl: EVENT_RUNDOWN_URL,
     });
+    // QA: the seat is not part of the success card.
+    expect(view).not.toHaveProperty("seat");
     expect(view.kind === "ready" && view.rundownQrDataUrl.startsWith("data:image/png")).toBe(true);
     // The portrait is collected at check-in; nothing here points at the session.
     expect(JSON.stringify(view)).not.toContain(session.id);
@@ -46,7 +47,6 @@ describe("loadSuccessView", () => {
     await expect(loadSuccessView(session.id)).resolves.toMatchObject({
       kind: "ready",
       guestName: null,
-      seat: "",
     });
   });
 

@@ -19,7 +19,7 @@ export default async function SuccessPage({
 }) {
   const { id } = await params;
   return (
-    <GuestShell note="私人創作空間">
+    <GuestShell>
       <SuccessCard view={await loadSuccessView(id)} />
     </GuestShell>
   );

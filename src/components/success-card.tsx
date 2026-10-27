@@ -18,7 +18,6 @@ export type SuccessView =
   | {
       kind: "ready";
       guestName: string | null;
-      seat: string;
       rundownUrl: string;
       rundownQrDataUrl: string;
     }
@@ -66,14 +65,8 @@ export function SuccessCard({ view }: { view: SuccessView }) {
       <InvitationRule />
 
       <div className="celebration-body">
-        <InvitationDetails>
-          {view.seat ? (
-            <div>
-              <dt>座位</dt>
-              <dd className="celebration-seat">{view.seat}</dd>
-            </div>
-          ) : null}
-        </InvitationDetails>
+        {/* No seat here (QA request); guests see it on the check-in card. */}
+        <InvitationDetails />
 
         <figure className="celebration-share">
           <Image
@@ -87,7 +80,7 @@ export function SuccessCard({ view }: { view: SuccessView }) {
           <figcaption>掃描查看活動流程</figcaption>
           <div className="celebration-share-links">
             <a href={view.rundownUrl} target="_blank" rel="noopener noreferrer">
-              開啟活動流程
+              或按此開啟活動流程
             </a>
           </div>
         </figure>

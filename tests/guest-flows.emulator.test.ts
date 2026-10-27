@@ -111,7 +111,8 @@ describe.skipIf(emulatorHost !== TEST_EMULATOR_HOST)("event-day guest flows", ()
 
     // The success card greets them but does not hand out the portrait.
     const success = await loadSuccessView(id);
-    expect(success).toMatchObject({ kind: "ready", guestName: "測試甲", seat: "A1" });
+    expect(success).toMatchObject({ kind: "ready", guestName: "測試甲" });
+    expect(success).not.toHaveProperty("seat");
     expect(JSON.stringify(success)).not.toContain(id);
 
     await finishRendering();

@@ -100,7 +100,10 @@ export function InvitationDetails({
       {showTime && (
         <div>
           <dt>時間</dt>
-          <dd>{EVENT_INFO.time}</dd>
+          <dd>
+            {EVENT_INFO.time}
+            <small>{EVENT_INFO.checkInOpens}</small>
+          </dd>
         </div>
       )}
       <div>
@@ -152,7 +155,8 @@ export function GuestShell({
   note,
   children,
 }: {
-  note: string;
+  /** Small label at the header's right, e.g. 成果展報到; omit for none. */
+  note?: string;
   children: ReactNode;
 }) {
   return (
@@ -162,10 +166,12 @@ export function GuestShell({
 
       <header className="site-header">
         <BloomMark />
-        <div className="privacy-note">
-          <span className="privacy-dot" />
-          {note}
-        </div>
+        {note && (
+          <div className="privacy-note">
+            <span className="privacy-dot" />
+            {note}
+          </div>
+        )}
       </header>
 
       <section className="booth-stage booth-stage-invitation">

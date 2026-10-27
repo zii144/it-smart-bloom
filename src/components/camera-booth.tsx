@@ -16,6 +16,7 @@ import {
   InvitationOverline,
   InvitationRule,
 } from "@/components/invitation";
+import { PhotoCropper } from "@/components/photo-cropper";
 import {
   activeDeviceId,
   describeCameraError,
@@ -29,6 +30,11 @@ import {
   normalizeMobile,
 } from "@/lib/guest-identity";
 import type { ImageGenerationOptions } from "@/lib/image-options";
+import {
+  INITIAL_CROP,
+  renderCroppedPhoto,
+  type PhotoCrop,
+} from "@/lib/photo-crop";
 
 type BoothStep =
   | "invitation"
@@ -132,6 +138,8 @@ export function CameraBooth({
   const [photo, setPhoto] = useState<Blob | null>(null);
   const [photoSource, setPhotoSource] = useState<PhotoSource | null>(null);
   const [previewUrl, setPreviewUrl] = useState<string | null>(null);
+  // How the guest framed an uploaded photo; camera shots are already square.
+  const [crop, setCrop] = useState<PhotoCrop>(INITIAL_CROP);
   const [error, setError] = useState<string | null>(null);
   const [cameraReady, setCameraReady] = useState(false);
   const [showSettings, setShowSettings] = useState(false);
@@ -290,6 +298,7 @@ export function CameraBooth({
     setPhotoSource(null);
     if (previewUrl) URL.revokeObjectURL(previewUrl);
     setPreviewUrl(null);
+    setCrop(INITIAL_CROP);
     if (returnToUpload) {
       if (uploadInputRef.current) uploadInputRef.current.value = "";
       setError(null);
@@ -313,8 +322,17 @@ export function CameraBooth({
     setShowSettings(false);
 
     try {
+      let image: Blob = photo;
+      if (photoSource === "upload" && previewUrl) {
+        try {
+          image = await renderCroppedPhoto(previewUrl, crop);
+        } catch (caught) {
+          // The full photo still makes a portrait; better than stopping here.
+          console.warn("[bloom] crop failed, sending the whole photo", caught);
+        }
+      }
       const formData = new FormData();
-      formData.set("image", photo, "portrait.jpg");
+      formData.set("image", image, "portrait.jpg");
       // The server re-checks the roster; the earlier verify call is only a
       // friendlier, earlier answer for the guest.
       formData.set("name", guestName);
@@ -422,6 +440,7 @@ export function CameraBooth({
     setPhoto(file);
     setPhotoSource("upload");
     setPreviewUrl(URL.createObjectURL(file));
+    setCrop(INITIAL_CROP);
     setError(null);
   }
 
@@ -458,10 +477,6 @@ export function CameraBooth({
 
       <header className="site-header">
         <BloomMark />
-        <div className="privacy-note">
-          <span className="privacy-dot" />
-          私人創作空間
-        </div>
       </header>
 
       <section className={`booth-stage booth-stage-${step}`}>
@@ -853,24 +868,41 @@ export function CameraBooth({
         {step === "preview" && previewUrl && (
           <div className="review-layout">
             <div className="stage-heading">
-              <p className="eyebrow">很好看</p>
-              <h1>就選這張嗎？</h1>
-              <p>
-                確認後會產生約 15 分鐘有效的手機連結；創作中的照片會暫存在本服務以便生成人像。
+              <p className="eyebrow">
+                {photoSource === "upload" ? "調整照片" : "很好看"}
               </p>
+              <h1>就選這張嗎？</h1>
+              {photoSource === "upload" ? (
+                <p>
+                  拖曳照片調整位置，用雙指或下方滑桿縮放，讓臉落在圓框中間。創作中的照片會暫存在本服務以便生成人像。
+                </p>
+              ) : (
+                <p>
+                  確認後會產生約 15 分鐘有效的手機連結；創作中的照片會暫存在本服務以便生成人像。
+                </p>
+              )}
             </div>
-            <div className="review-image">
-              <Image
+            {photoSource === "upload" ? (
+              <PhotoCropper
                 src={previewUrl}
-                alt="你剛拍下的人像照片"
-                fill
-                unoptimized
-                sizes="(max-width: 700px) 84vw, 440px"
+                alt="你選擇的人像照片"
+                crop={crop}
+                onCropChange={setCrop}
               />
-            </div>
+            ) : (
+              <div className="review-image">
+                <Image
+                  src={previewUrl}
+                  alt="你剛拍下的人像照片"
+                  fill
+                  unoptimized
+                  sizes="(max-width: 700px) 84vw, 440px"
+                />
+              </div>
+            )}
             <div className="review-actions">
               <button className="secondary-button" onClick={retake}>
-                重新拍攝
+                {photoSource === "upload" ? "重新選擇照片" : "重新拍攝"}
               </button>
               <button className="primary-button" onClick={() => void createShareSession()}>
                 使用這張照片

@@ -371,15 +371,13 @@ export async function undoRosterCheckIn(id: string) {
   });
 }
 
-/** Name and seat for the guest-facing success card; nothing else. */
-export async function readRosterGuest(
-  id: string,
-): Promise<{ name: string; seat: string } | null> {
+/** The name for the guest-facing success card; nothing else. */
+export async function readRosterGuest(id: string): Promise<{ name: string } | null> {
   const db = requireDb();
   const doc = await rosterCollection(db).doc(id).get();
   if (!doc.exists) return null;
   const entry = doc.data() as RosterEntryData;
-  return { name: entry.name, seat: entry.seat ?? "" };
+  return { name: entry.name };
 }
 
 // —— Event day: portrait status ——

@@ -411,7 +411,6 @@ export function SessionExperience({
     <main className="mobile-shell">
       <header className="mobile-header">
         <BloomMark />
-        <span>私人創作空間</span>
       </header>
 
       <noscript>
