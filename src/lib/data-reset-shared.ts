@@ -16,7 +16,7 @@ export const RESET_CATEGORIES = [
   {
     key: "portraits",
     label: "似顏繪",
-    description: "刪除所有創作紀錄、雲端儲存的照片與作品，以及來賓的作品狀態。",
+    description: "刪除所有創作紀錄、雲端儲存的照片與作品，以及來賓的作品狀態；所有來賓可重新上傳照片。",
   },
   {
     key: "usage",

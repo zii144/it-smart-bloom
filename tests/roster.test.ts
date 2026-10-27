@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import {
+  hasSubmittedPhoto,
   normalizeRosterMobile,
   parseRosterInput,
   parseRosterSheets,
@@ -294,6 +295,20 @@ describe("planRosterImport", () => {
       { row: 2, name: "甲", mobile: "0911111111", seat: "A1" },
     ]);
     expect(JSON.stringify(summary)).not.toContain("某市某路");
+  });
+});
+
+describe("hasSubmittedPhoto", () => {
+  it("is set by an accepted photo and cleared when an admin allows another", () => {
+    expect(hasSubmittedPhoto({ photoSubmittedAt: "2026-11-10T06:00:00.000Z" })).toBe(true);
+    expect(hasSubmittedPhoto({ photoSubmittedAt: null, portraitSessionId: "old" })).toBe(false);
+  });
+
+  it("counts a portrait from before the rule existed, unless it failed", () => {
+    expect(hasSubmittedPhoto({ portraitSessionId: "legacy" })).toBe(true);
+    expect(hasSubmittedPhoto({ portraitSessionId: "legacy", portraitStatus: "complete" })).toBe(true);
+    expect(hasSubmittedPhoto({ portraitSessionId: "legacy", portraitStatus: "failed" })).toBe(false);
+    expect(hasSubmittedPhoto({})).toBe(false);
   });
 });
 

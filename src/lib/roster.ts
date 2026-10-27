@@ -78,7 +78,29 @@ export type RosterEventState = {
    */
   portraitAccessToken?: string | null;
   portraitAccessExpiresAt?: string | null;
+  /**
+   * Set when the guest's booth photo is accepted: one submission per guest.
+   * `null` means "may submit" (never submitted, or an admin allowed another).
+   * Absent on entries from before this rule; see `hasSubmittedPhoto`.
+   */
+  photoSubmittedAt?: string | null;
 };
+
+/**
+ * Whether the guest has used their one photo submission. Only a portrait that
+ * did not fail counts: a failed render gives the submission back.
+ * Entries from before the rule have no `photoSubmittedAt`; for them a
+ * portrait session that has not failed counts.
+ */
+export function hasSubmittedPhoto(
+  entry: Pick<
+    RosterEventState,
+    "photoSubmittedAt" | "portraitSessionId" | "portraitStatus"
+  >,
+) {
+  if (entry.photoSubmittedAt !== undefined) return entry.photoSubmittedAt !== null;
+  return Boolean(entry.portraitSessionId) && entry.portraitStatus !== "failed";
+}
 
 /** Stored Firestore document (`roster/{id}`). */
 export type RosterEntryData = RosterInput &

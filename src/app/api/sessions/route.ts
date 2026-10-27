@@ -7,7 +7,12 @@ import {
 } from "@/lib/image-options";
 import { archiveSessionCreated } from "@/lib/portrait-archive";
 import { GuestRosterError, matchGuestOnRoster } from "@/lib/roster-guest";
-import { RosterUnavailableError } from "@/lib/roster-store";
+import {
+  PhotoAlreadySubmittedError,
+  releasePhotoSubmission,
+  reservePhotoSubmission,
+  RosterUnavailableError,
+} from "@/lib/roster-store";
 import {
   brandedQrDataUrl,
   sessionShareUrl,
@@ -62,24 +67,37 @@ export async function POST(request: Request) {
       }
     }
 
-    const session = await createSession(image, generationOptions, undefined, {
-      rosterEntryId,
-    });
+    // One photo per guest: claim it before storing anything, atomically.
+    const reservedAt = await reservePhotoSubmission(rosterEntryId);
 
-    // Persist to Firestore/Storage before the response so other serverless
-    // instances (phone poll / image fetch) can find the session. `/tmp` is
-    // not shared across Vercel isolates.
+    let session;
     try {
-      const input = await readInputImage(session.id);
-      await archiveSessionCreated(session, input);
-    } catch (error) {
-      console.error("Failed to archive session:", error);
-      // When Firebase is configured, a usable QR without an archive is a lie —
-      // the phone will 404 on another isolate. Fail closed and drop the local copy.
-      if (isFirebaseConfigured()) {
-        await deleteSession(session.id).catch(() => {});
-        throw new SessionError("無法保存創作空間，請稍後再試。", 503);
+      session = await createSession(image, generationOptions, undefined, {
+        rosterEntryId,
+      });
+
+      // Persist to Firestore/Storage before the response so other serverless
+      // instances (phone poll / image fetch) can find the session. `/tmp` is
+      // not shared across Vercel isolates.
+      try {
+        const input = await readInputImage(session.id);
+        await archiveSessionCreated(session, input);
+      } catch (error) {
+        console.error("Failed to archive session:", error);
+        // When Firebase is configured, a usable QR without an archive is a lie —
+        // the phone will 404 on another isolate. Fail closed and drop the local copy.
+        if (isFirebaseConfigured()) {
+          await deleteSession(session.id).catch(() => {});
+          throw new SessionError("無法保存創作空間，請稍後再試。", 503);
+        }
       }
+    } catch (error) {
+      // Nothing was submitted after all (bad file, storage down): give the
+      // guest their one submission back.
+      await releasePhotoSubmission(rosterEntryId, reservedAt).catch((releaseError) => {
+        console.error("Failed to release photo submission:", releaseError);
+      });
+      throw error;
     }
 
     // The phone is only a viewer: start rendering as soon as the photo exists so
@@ -115,6 +133,12 @@ export async function POST(request: Request) {
   } catch (error) {
     if (error instanceof GuestRosterError) {
       return Response.json({ error: error.message }, { status: error.status });
+    }
+    if (error instanceof PhotoAlreadySubmittedError) {
+      return Response.json(
+        { error: error.message, alreadySubmitted: true },
+        { status: 409 },
+      );
     }
     if (error instanceof RosterUnavailableError) {
       return Response.json({ error: error.message }, { status: 503 });

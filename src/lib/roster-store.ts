@@ -6,6 +6,7 @@ import type {
 } from "firebase-admin/firestore";
 import { getDb } from "@/lib/firebase-admin";
 import {
+  hasSubmittedPhoto,
   MAX_ROSTER_ROWS,
   normalizeRosterMobile,
   planRosterImport,
@@ -39,6 +40,13 @@ export class RosterConflictError extends Error {
   constructor() {
     super("已有相同姓名與手機的資料。");
     this.name = "RosterConflictError";
+  }
+}
+
+export class PhotoAlreadySubmittedError extends Error {
+  constructor() {
+    super("您已經上傳過照片，每位來賓限一次。如需重新上傳，請洽現場工作人員。");
+    this.name = "PhotoAlreadySubmittedError";
   }
 }
 
@@ -380,6 +388,10 @@ export async function readRosterGuest(
  * admin check-in view reads one collection instead of every session.
  * A newer session takes over; a late update from an older one is ignored.
  * A deleted roster entry is left deleted.
+ *
+ * Also keeps the one-photo rule honest: only a portrait that did not fail
+ * counts, so a failed render gives the guest their submission back, and a
+ * finished one (e.g. a retry that succeeded) takes it again.
  */
 export async function recordRosterPortrait(
   id: string,
@@ -401,10 +413,72 @@ export async function recordRosterPortrait(
     ) {
       return;
     }
+    const now = new Date().toISOString();
+    const submission =
+      status === "failed"
+        ? { photoSubmittedAt: null }
+        : status === "complete" && !entry.photoSubmittedAt
+          ? { photoSubmittedAt: now }
+          : {};
     transaction.update(ref, {
       portraitSessionId: sessionId,
       portraitStatus: status,
-      portraitUpdatedAt: new Date().toISOString(),
+      portraitUpdatedAt: now,
+      ...submission,
     });
+  });
+}
+
+// —— One photo per guest ——
+
+export async function isPhotoSubmitted(id: string) {
+  const db = requireDb();
+  const doc = await rosterCollection(db).doc(id).get();
+  if (!doc.exists) throw new RosterNotFoundError();
+  return hasSubmittedPhoto(doc.data() as RosterEntryData);
+}
+
+/**
+ * Claims the guest's one submission before their photo is stored. Atomic, so
+ * two submissions racing from two phones cannot both get through. Returns the
+ * claim time, which `releasePhotoSubmission` needs if storing then fails.
+ */
+export async function reservePhotoSubmission(id: string): Promise<string> {
+  const db = requireDb();
+  const ref = rosterCollection(db).doc(id);
+  return db.runTransaction(async (transaction) => {
+    const current = await transaction.get(ref);
+    if (!current.exists) throw new RosterNotFoundError();
+    if (hasSubmittedPhoto(current.data() as RosterEntryData)) {
+      throw new PhotoAlreadySubmittedError();
+    }
+    const reservedAt = new Date().toISOString();
+    transaction.update(ref, { photoSubmittedAt: reservedAt });
+    return reservedAt;
+  });
+}
+
+/** Gives the submission back when the photo could not be stored after all. */
+export async function releasePhotoSubmission(id: string, reservedAt: string) {
+  const db = requireDb();
+  const ref = rosterCollection(db).doc(id);
+  await db.runTransaction(async (transaction) => {
+    const current = await transaction.get(ref);
+    const entry = current.data() as RosterEntryData | undefined;
+    // Only undo our own claim, never a later one.
+    if (entry?.photoSubmittedAt === reservedAt) {
+      transaction.update(ref, { photoSubmittedAt: null });
+    }
+  });
+}
+
+/** Admin: let this guest submit one more photo. Their current portrait stays until replaced. */
+export async function allowPhotoResubmission(id: string) {
+  const db = requireDb();
+  const ref = rosterCollection(db).doc(id);
+  await db.runTransaction(async (transaction) => {
+    const current = await transaction.get(ref);
+    if (!current.exists) throw new RosterNotFoundError();
+    transaction.update(ref, { photoSubmittedAt: null });
   });
 }

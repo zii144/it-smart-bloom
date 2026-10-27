@@ -110,6 +110,27 @@ Guests upload a photo after entering 姓名 + 手機. The on-site camera
 option (改用現場相機) is off. A staffed kiosk can turn it back on with
 `<CameraBooth cameraOption />`.
 
+### One photo per guest
+
+Each roster guest can submit **one** photo; that is one portrait generation.
+
+- The booth's early check (`POST /api/roster/verify`) answers **409** for a
+  guest who already submitted, so they are told before picking a photo.
+  `POST /api/sessions` enforces it too, with a Firestore transaction, so
+  two phones submitting at once cannot both get through.
+- **Only finished portraits count.** If the photo cannot be stored, or the
+  portrait fails to generate (e.g. an OpenAI error), the guest gets their
+  submission back automatically. A failed render that later succeeds on
+  retry uses it again.
+- Admins can lift the limit for one guest in **報到管理** → **允許重新上傳**
+  (two-step). The guest's current portrait stays until the new one replaces
+  it.
+- Guests who made a portrait before this rule count as already submitted,
+  unless that portrait failed.
+- Resetting **似顏繪** in 資料重置 lets everyone submit again.
+- Stored as `photoSubmittedAt` on the roster entry. Imports and admin edits
+  never touch it.
+
 ### Success card (`/success/[id]`)
 
 After a guest confirms their photo, the booth goes to `/success/[session]`.
