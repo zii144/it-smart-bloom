@@ -11,7 +11,7 @@
     "lint": "eslint",
     "test": "vitest run",
     "test:watch": "vitest",
-    "test:emulator": "firebase emulators:exec --config firebase.emulator-test.json --project it-smart-bloom-tmp --only firestore \"vitest run tests/roster-store.emulator.test.ts\"",
+    "test:emulator": "firebase emulators:exec --config firebase.emulator-test.json --project it-smart-bloom-tmp --only firestore,storage \"vitest run .emulator.test --no-file-parallelism\"",
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {
