@@ -128,7 +128,7 @@ describe("CameraBooth stream attachment", () => {
     expect(container.textContent).toContain("敬邀蒞臨");
     expect(container.textContent).not.toContain("開啟相機");
     // QA: check-in opens before the programme; no header badge.
-    expect(container.textContent).toContain("14:00–15:3013:10分開始報到");
+    expect(container.textContent).toContain("14:00–15:3013:10開放入場");
     expect(container.textContent).not.toContain("私人創作空間");
 
     enterBooth(container);

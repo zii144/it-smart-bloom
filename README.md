@@ -145,7 +145,7 @@ Each roster guest can submit **one** photo; that is one portrait generation.
 After a guest confirms their photo, the booth goes to `/success/[session]`.
 This is an invitation-style card that greets the guest by roster name,
 confirms the photo was received, and shows the event details (time, with
-報到 opening at 13:10, and venue). It does not show the seat; the check-in
+doors opening at 13:10 (13:10開放入場), and venue). It does not show the seat; the check-in
 card does. Its QR code (and the tappable 或按此開啟活動流程 link) always opens
 the event rundown on Google
 Drive (`EVENT_RUNDOWN_URL` in `src/lib/event-info.ts`). **The portrait is not
