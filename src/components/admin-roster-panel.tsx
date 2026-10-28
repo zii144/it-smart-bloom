@@ -217,6 +217,14 @@ function ImportSummary({ summary }: { summary: RosterImportSummary }) {
         {skipped.length ? ` · 略過 ${skipped.length}` : ""}
         {warnings.length ? ` · 提醒 ${warnings.length}` : ""}
       </p>
+      {summary.otherSheets.length > 0 && (
+        <p className="admin-batch-hint">
+          只匯入上面這個工作表；其他也有姓名與手機的工作表未匯入：
+          {summary.otherSheets
+            .map((sheet) => `「${sheet.name}」${sheet.hidden ? "（隱藏）" : ""}`)
+            .join("、")}
+        </p>
+      )}
       {summary.ignoredColumns.length > 0 && (
         <p className="admin-batch-hint">
           不匯入的敏感欄位：{summary.ignoredColumns.join("、")}

@@ -36,6 +36,8 @@ export type ImageSession = {
   id: string;
   createdAt: string;
   expiresAt: string;
+  /** Last write of this copy; compared with the archive's to pick the newer. */
+  updatedAt?: string;
   status: SessionStatus;
   inputMime: string;
   resultMime?: string;
@@ -125,6 +127,7 @@ function sessionFromArchive(record: {
   status: SessionStatus;
   createdAt: string;
   expiresAt?: string | null;
+  updatedAt?: string | null;
   generationStartedAt?: string | null;
   generationAttempts?: number | null;
   error?: string | null;
@@ -147,6 +150,7 @@ function sessionFromArchive(record: {
     inputMime: record.inputMime,
   };
 
+  if (record.updatedAt) session.updatedAt = record.updatedAt;
   if (record.resultMime) session.resultMime = record.resultMime;
   if (record.error) session.error = record.error;
   if (record.source) session.source = record.source;
@@ -180,6 +184,47 @@ async function loadSessionFromArchive(id: string): Promise<ImageSession | null> 
   const record = await readArchiveRecord(id);
   if (!record?.sessionId) return null;
   return sessionFromArchive(record);
+}
+
+function sameProgress(left: ImageSession, right: ImageSession) {
+  return (
+    left.status === right.status &&
+    (left.error ?? null) === (right.error ?? null) &&
+    (left.resultMime ?? null) === (right.resultMime ?? null) &&
+    (left.generationStartedAt ?? null) === (right.generationStartedAt ?? null) &&
+    (left.generationAttempts ?? 0) === (right.generationAttempts ?? 0)
+  );
+}
+
+/**
+ * On Vercel every server instance keeps its own /tmp copy, so a copy cached
+ * here can fall behind a render that finished on another instance: the page
+ * then waits on "generating" forever while the archive (and the admin view)
+ * says complete. The archive is written on every status change, so when it is
+ * newer and says something different, it wins. Never fails the read.
+ */
+async function reconcileWithArchive(local: ImageSession): Promise<ImageSession> {
+  let archived: ImageSession | null;
+  try {
+    archived = await loadSessionFromArchive(local.id);
+  } catch (error) {
+    console.warn(`[sessions] could not compare ${local.id} with the archive:`, error);
+    return local;
+  }
+  if (!archived || sameProgress(local, archived)) return local;
+
+  const localAt = Date.parse(local.updatedAt ?? "");
+  const archivedAt = Date.parse(archived.updatedAt ?? "");
+  // An older archive means this instance is the one doing the work and its
+  // archive write is still in flight (or failed): keep the local copy.
+  if (Number.isFinite(localAt) && !(archivedAt > localAt)) return local;
+
+  const next: ImageSession =
+    local.identity && !archived.identity
+      ? { ...archived, identity: local.identity }
+      : archived;
+  await cacheSessionLocally(next);
+  return next;
 }
 
 async function cacheSessionLocally(session: ImageSession) {
@@ -300,6 +345,7 @@ export async function createSession(
     id,
     createdAt: createdAt.toISOString(),
     expiresAt: new Date(createdAt.getTime() + SESSION_TTL_MS).toISOString(),
+    updatedAt: createdAt.toISOString(),
     status: "ready",
     inputMime: file.type,
     ...(source ? { source } : {}),
@@ -317,8 +363,9 @@ export async function createSession(
 export async function getSession(id: string) {
   assertSessionId(id);
 
+  let local: ImageSession;
   try {
-    return await readLocalMetadata(id);
+    local = await readLocalMetadata(id);
   } catch (error) {
     if (error instanceof SessionError) {
       throw error;
@@ -336,14 +383,16 @@ export async function getSession(id: string) {
 
     throw new SessionError("找不到這個創作空間。", 404);
   }
+
+  return reconcileWithArchive(local);
 }
 
 export async function updateSession(
   id: string,
-  changes: Partial<Omit<ImageSession, "id" | "createdAt" | "expiresAt">>,
+  changes: Partial<Omit<ImageSession, "id" | "createdAt" | "expiresAt" | "updatedAt">>,
 ) {
   const current = await getSession(id);
-  const next = { ...current, ...changes };
+  const next = { ...current, ...changes, updatedAt: new Date().toISOString() };
   await cacheSessionLocally(next);
   return next;
 }

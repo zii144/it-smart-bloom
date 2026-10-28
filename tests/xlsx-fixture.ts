@@ -61,8 +61,18 @@ function sheetXml(rows: Cell[][]) {
   return `<?xml version="1.0" encoding="UTF-8" standalone="yes"?><worksheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main"><sheetData>${body}</sheetData></worksheet>`;
 }
 
-/** Builds a minimal but valid .xlsx with one or more sheets. */
-export function buildXlsx(sheets: { name: string; rows: Cell[][] }[]) {
+/**
+ * Builds a minimal but valid .xlsx with one or more sheets. `hidden` and
+ * `activeTab` mirror how Excel records hidden sheets and the open tab.
+ */
+export function buildXlsx(
+  sheets: { name: string; rows: Cell[][]; hidden?: boolean }[],
+  { activeTab }: { activeTab?: number } = {},
+) {
+  const workbookView =
+    activeTab === undefined
+      ? ""
+      : `<bookViews><workbookView activeTab="${activeTab}"/></bookViews>`;
   const files: Record<string, Uint8Array> = {
     "[Content_Types].xml": strToU8(
       `<?xml version="1.0" encoding="UTF-8" standalone="yes"?><Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types"><Default Extension="rels" ContentType="application/vnd.openxmlformats-package.relationships+xml"/><Default Extension="xml" ContentType="application/xml"/><Override PartName="/xl/workbook.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet.main+xml"/>${sheets
@@ -76,10 +86,12 @@ export function buildXlsx(sheets: { name: string; rows: Cell[][] }[]) {
       `<?xml version="1.0" encoding="UTF-8" standalone="yes"?><Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships"><Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/officeDocument" Target="xl/workbook.xml"/></Relationships>`,
     ),
     "xl/workbook.xml": strToU8(
-      `<?xml version="1.0" encoding="UTF-8" standalone="yes"?><workbook xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main" xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships"><sheets>${sheets
+      `<?xml version="1.0" encoding="UTF-8" standalone="yes"?><workbook xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main" xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships">${workbookView}<sheets>${sheets
         .map(
           (sheet, index) =>
-            `<sheet name="${escapeXml(sheet.name)}" sheetId="${index + 1}" r:id="rId${index + 1}"/>`,
+            `<sheet name="${escapeXml(sheet.name)}" sheetId="${index + 1}"${
+              sheet.hidden ? ' state="hidden"' : ""
+            } r:id="rId${index + 1}"/>`,
         )
         .join("")}</sheets></workbook>`,
     ),
