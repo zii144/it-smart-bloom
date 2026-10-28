@@ -215,9 +215,44 @@ two generations (first render + one retry). Local expired directories are purged
 opportunistically when new sessions are created; Firebase archive retention is
 separate.
 
-Road-teacher avatar replacement UI is shown only when `NEXT_PUBLIC_RT_MOCK=true`
-(dev). Legacy LINE/mobile claim endpoints stay off unless
-`ALLOW_LEGACY_IDENTITY_CLAIM=true`.
+Road-teacher avatar replacement is implemented on the completed creation page
+and check-in portrait handover, but is **currently hidden by default**.
+`NEXT_PUBLIC_RT_AVATAR_ENABLED` must explicitly be `true` to expose the feature;
+configuring RT alone does not enable it. Keep this flag false until rollout.
+Configure all four public RT variables **before building** for the real login
+and transfer:
+
+```dotenv
+NEXT_PUBLIC_RT_AVATAR_ENABLED=false
+NEXT_PUBLIC_RT_FIREBASE_API_KEY=<RT web API key>
+NEXT_PUBLIC_RT_FIREBASE_AUTH_DOMAIN=<RT auth domain>
+NEXT_PUBLIC_RT_FIREBASE_PROJECT_ID=<RT project id>
+NEXT_PUBLIC_RT_SET_AVATAR_URL=https://<RT function host>/bloomSetAvatar
+APP_BASE_URL=https://<public Bloom host>
+```
+
+Use the RT project's public web config, not Bloom's. The RT email/password
+provider and `bloomSetAvatar` HTTPS endpoint must already be operational;
+its CORS and allowed portrait host must include the deployed Bloom origin.
+Changing this configuration requires a rebuild. Missing or invalid config
+keeps the avatar action hidden; download and share remain available.
+
+The browser signs in directly to RT Firebase with memory-only persistence,
+sends the ID token directly to RT, then signs out. Bloom issues a five-minute,
+single-use `/api/portrait/:token` capability backed by an atomic Firestore
+transaction. Firestore stores the token hash, not the bearer token. The
+check-in capability can mint a transfer after the 15-minute creation link
+expires, without disclosing the original creation link to the client.
+RT's `sessionId` request field is correlation-only; check-in transfers use a
+new random correlation ID. RT must select the destination account exclusively
+from its verified ID token.
+
+`NEXT_PUBLIC_RT_MOCK=true` is supported only outside production builds.
+Mock transfers are visibly labelled and never recorded as real success.
+The `avatar-result` endpoint is advisory client-reported bookkeeping, never
+proof an avatar changed. Legacy LINE/mobile claim endpoints remain disabled
+unless `ALLOW_LEGACY_IDENTITY_CLAIM=true`; do not use them for this flow.
+No existing identity records are migrated or deleted by this feature.
 
 ### Daily spend ceiling
 

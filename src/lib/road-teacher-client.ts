@@ -5,10 +5,8 @@
  * sign in → obtain a portrait URL → POST it to the road-teacher endpoint.
  *
  * Mock mode (NEXT_PUBLIC_RT_MOCK, dev builds) targets the local
- * /api/dev/set-avatar stub and skips the single-use portrait ticket, which
- * arrives with the backend phase (docs/road-teacher-auth-plan.md §4 Phase 1).
- * The real path is already written against that plan so flipping modes later
- * does not change this module's call sites.
+ * /api/dev/set-avatar stub. Production transfers only a short-lived,
+ * single-use portrait capability and sends the RT ID token directly to RT.
  */
 
 import {
@@ -16,31 +14,65 @@ import {
   isRoadTeacherMockEnabled,
   signInToRoadTeacher,
 } from "@/lib/road-teacher-auth";
+import {
+  getRoadTeacherConfig,
+  isRoadTeacherAvatarUiEnabled,
+} from "@/lib/road-teacher-flags";
+
+export type AvatarPortraitSource =
+  | { sessionId: string; checkInToken?: never }
+  | { sessionId?: never; checkInToken: string };
 
 export type AvatarReplaceResult = {
   /** True when the dev stub answered — the UI must say so, never fake success. */
   mock: boolean;
 };
 
+/** Mobile requests must resolve so the guest can retry and auth can be cleared. */
+async function fetchForAvatar(url: string, init: RequestInit) {
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), 30_000);
+  try {
+    return await fetch(url, { ...init, signal: controller.signal });
+  } catch {
+    throw new Error("網路連線不穩，請稍後再試。");
+  } finally {
+    clearTimeout(timeout);
+  }
+}
+
 function roadTeacherEndpoint(): string | null {
+  if (!isRoadTeacherAvatarUiEnabled()) return null;
   if (isRoadTeacherMockEnabled()) {
     return "/api/dev/set-avatar";
   }
-  return process.env.NEXT_PUBLIC_RT_SET_AVATAR_URL?.trim() || null;
+  return getRoadTeacherConfig()?.endpoint ?? null;
 }
 
-async function mintPortraitUrl(sessionId: string): Promise<string> {
+function sourcePath(source: AvatarPortraitSource) {
+  if (source.checkInToken)
+    return `/api/check-in/portrait/${encodeURIComponent(source.checkInToken)}`;
+  return `/api/sessions/${encodeURIComponent(source.sessionId!)}`;
+}
+
+async function mintPortraitUrl(source: AvatarPortraitSource): Promise<string> {
   if (isRoadTeacherMockEnabled()) {
     // The stub runs on this origin and can read the session image directly.
     return new URL(
-      `/api/sessions/${sessionId}/image?kind=result`,
+      source.checkInToken
+        ? sourcePath(source)
+        : `${sourcePath(source)}/image?kind=result`,
       window.location.origin,
     ).toString();
   }
 
-  const response = await fetch(`/api/sessions/${sessionId}/portrait-token`, {
-    method: "POST",
-  });
+  const response = await fetchForAvatar(
+    `${sourcePath(source)}/${source.checkInToken ? "avatar-token" : "portrait-token"}`,
+    {
+      method: "POST",
+      cache: "no-store",
+    },
+  );
   const payload = (await response.json().catch(() => ({}))) as {
     url?: string;
     error?: string;
@@ -53,63 +85,83 @@ async function mintPortraitUrl(sessionId: string): Promise<string> {
 
 /**
  * Fire-and-forget ops bookkeeping for the admin dashboard. Client-reported
- * and therefore forgeable — never a security control. The route lands with
- * the backend phase; a 404 until then is harmless.
+ * and therefore forgeable — never a security control.
  */
 function reportOutcome(
-  sessionId: string,
+  source: AvatarPortraitSource,
   outcome: { ok: true } | { ok: false; error: string },
 ) {
-  void fetch(`/api/sessions/${sessionId}/avatar-result`, {
+  // Check-in transfers do not disclose their backing session ID to the client.
+  if (!source.sessionId || isRoadTeacherMockEnabled()) return;
+  void fetch(`${sourcePath(source)}/avatar-result`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify(outcome),
   }).catch(() => {});
 }
 
-export async function replaceRoadTeacherAvatar(input: {
-  sessionId: string;
-  email: string;
-  password: string;
-}): Promise<AvatarReplaceResult> {
+export async function replaceRoadTeacherAvatar(
+  input: AvatarPortraitSource & {
+    email: string;
+    password: string;
+  },
+): Promise<AvatarReplaceResult> {
   const endpoint = roadTeacherEndpoint();
   if (!endpoint) {
     throw new Error("路老師系統尚未開通，請稍後再試。");
   }
 
-  // A sign-in failure is the guest's typo, not an avatar request — nothing is
-  // reported to the dashboard for it.
-  const idToken = await signInToRoadTeacher(input.email, input.password);
-
+  let authenticated = false;
   try {
-    const portraitUrl = await mintPortraitUrl(input.sessionId);
-    const response = await fetch(endpoint, {
+    const idToken = await signInToRoadTeacher(input.email, input.password);
+    authenticated = true;
+    const portraitUrl = await mintPortraitUrl(input);
+    // RT treats sessionId as correlation metadata, never as account identity.
+    // Do not reveal the creation capability when the guest only has check-in access.
+    const correlationId =
+      input.sessionId ?? crypto.randomUUID().replaceAll("-", "");
+    const response = await fetchForAvatar(endpoint, {
       method: "POST",
       headers: {
         "Content-Type": "application/json",
         Authorization: `Bearer ${idToken}`,
       },
-      body: JSON.stringify({ portraitUrl, sessionId: input.sessionId }),
+      body: JSON.stringify({ portraitUrl, sessionId: correlationId }),
+      credentials: "omit",
+      redirect: "error",
     });
     const payload = (await response.json().catch(() => ({}))) as {
       error?: string;
       mock?: boolean;
+      ok?: boolean;
     };
-    if (!response.ok) {
-      throw new Error(payload.error || "路老師系統暫時無法使用。");
+    if (
+      !response.ok ||
+      payload.ok !== true ||
+      (payload.mock === true && !isRoadTeacherMockEnabled())
+    ) {
+      const messages: Record<number, string> = {
+        400: "無法使用這張作品，請洽現場工作人員。",
+        401: "登入憑證已失效，請重新登入再試。",
+        403: "此帳號無法替換大頭貼，請聯絡路老師系統管理員。",
+        413: "圖片大小不符合限制。",
+        415: "不支援的圖片格式。",
+        429: "嘗試次數過多，請稍後再試。",
+      };
+      throw new Error(messages[response.status] || "路老師系統暫時無法使用。");
     }
 
-    reportOutcome(input.sessionId, { ok: true });
+    reportOutcome(input, { ok: true });
     return { mock: payload.mock === true };
   } catch (error) {
-    reportOutcome(input.sessionId, {
-      ok: false,
-      error:
-        error instanceof Error ? error.message : "路老師系統暫時無法使用。",
-    });
+    if (authenticated)
+      reportOutcome(input, {
+        ok: false,
+        error: "用戶端回報替換未完成。",
+      });
     throw error;
   } finally {
     // Booth handsets get passed around: the RT session must not outlive this.
-    await forgetRoadTeacherSession();
+    await forgetRoadTeacherSession().catch(() => {});
   }
 }
