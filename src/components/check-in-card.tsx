@@ -2,7 +2,6 @@
 
 import Image from "next/image";
 import { RoadTeacherAvatarAction } from "@/components/road-teacher-avatar-action";
-import Link from "next/link";
 import { useRef, useState } from "react";
 import {
   ArrowIcon,
@@ -102,7 +101,7 @@ function PortraitHandover({
       <p>
         {portrait.status === "failed"
           ? "這次似顏繪未能完成，請洽現場工作人員協助。"
-          : "您還沒有建立似顏繪，歡迎現場體驗。"}
+          : "您未於活動前完成似顏繪，現場恕不開放創作。"}
       </p>
     </div>
   );
@@ -148,7 +147,8 @@ function DoneCard({
         refreshing={refreshing}
       />
       <InvitationSignature>敬祝 活動愉快</InvitationSignature>
-      {portraitUrl ? (
+      {/* QA: no on-site generation, so a guest without a portrait gets no booth link. */}
+      {portraitUrl && (
         <a
           className="primary-button invitation-button"
           href={`${portraitUrl}?download=1`}
@@ -159,14 +159,7 @@ function DoneCard({
             <ArrowIcon />
           </span>
         </a>
-      ) : !done.portrait.status ? (
-        <Link className="primary-button invitation-button" href="/">
-          體驗路老師似顏繪
-          <span className="button-arrow">
-            <ArrowIcon />
-          </span>
-        </Link>
-      ) : null}
+      )}
       {portraitUrl && (
         <RoadTeacherAvatarAction
           checkInToken={portraitUrl.split("/").at(-1)!}

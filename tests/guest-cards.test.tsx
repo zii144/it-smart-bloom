@@ -53,7 +53,7 @@ describe("SuccessCard", () => {
 
   it("shows the event time with check-in opening, and no seat (QA)", () => {
     const { container } = render(<SuccessCard view={READY} />);
-    expect(container.textContent).toContain("14:00–15:3013:10分開始報到");
+    expect(container.textContent).toContain("14:00–15:3013:10開放入場");
     expect(container.textContent).not.toContain("座位");
   });
 
@@ -290,7 +290,7 @@ describe("CheckInCard", () => {
     });
   });
 
-  it("offers the booth to a guest who has no portrait yet", async () => {
+  it("does not offer on-site generation to a guest with no portrait (QA)", async () => {
     fetchMock.mockResolvedValue(
       Response.json({
         name: "王小美",
@@ -305,10 +305,11 @@ describe("CheckInCard", () => {
     );
     fillCheckIn(container);
 
-    expect(await findByText("您還沒有建立似顏繪，歡迎現場體驗。")).toBeTruthy();
-    expect(container.querySelector('a[href="/"]')?.textContent).toContain(
-      "體驗路老師似顏繪",
-    );
+    expect(
+      await findByText("您未於活動前完成似顏繪，現場恕不開放創作。"),
+    ).toBeTruthy();
+    expect(container.querySelector('a[href="/"]')).toBeNull();
+    expect(container.textContent).not.toContain("體驗路老師似顏繪");
     expect(container.textContent).not.toContain("儲存作品");
   });
 

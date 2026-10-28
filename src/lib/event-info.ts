@@ -4,8 +4,8 @@ export const EVENT_INFO = {
   program: ["114至115年高齡者交通安全教育－", "路老師培訓宣講計畫"],
   date: "115年11月10日 星期二",
   time: "14:00–15:30",
-  /** Printed under the time; doors open for 報到 before the programme starts. */
-  checkInOpens: "13:10分開始報到",
+  /** Printed under the time; doors open before the programme starts. */
+  checkInOpens: "13:10開放入場",
   venue: "晶宴會館—民權館",
   address: "臺北市中山區江寧里民權東路三段2號B1",
 } as const;
