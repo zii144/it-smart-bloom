@@ -38,12 +38,16 @@ describe("SuccessCard", () => {
   it("confirms the photo and points the QR and the link at the rundown", () => {
     const { container, getByText } = render(<SuccessCard view={READY} />);
 
-    expect(container.querySelector(".celebration-name")?.textContent).toBe("王小美");
+    expect(container.querySelector(".celebration-name")?.textContent).toBe(
+      "王小美",
+    );
     expect(getByText("照片已經收到")).toBeTruthy();
     expect(getByText("活動當天報到後，即可領取您的似顏繪")).toBeTruthy();
-    expect(container.querySelector('img[alt="活動流程 QR Code"]')?.getAttribute("src")).toBe(
-      READY.rundownQrDataUrl,
-    );
+    expect(
+      container
+        .querySelector('img[alt="活動流程 QR Code"]')
+        ?.getAttribute("src"),
+    ).toBe(READY.rundownQrDataUrl);
     expect(getByText("或按此開啟活動流程").getAttribute("href")).toBe(RUNDOWN);
   });
 
@@ -56,8 +60,12 @@ describe("SuccessCard", () => {
   it("never hands out the portrait or its links", () => {
     const { container } = render(<SuccessCard view={READY} />);
 
-    const hrefs = [...container.querySelectorAll("a")].map((link) => link.getAttribute("href"));
-    expect(hrefs.some((href) => href?.includes("/s/") || href?.includes("line.me"))).toBe(false);
+    const hrefs = [...container.querySelectorAll("a")].map((link) =>
+      link.getAttribute("href"),
+    );
+    expect(
+      hrefs.some((href) => href?.includes("/s/") || href?.includes("line.me")),
+    ).toBe(false);
     expect(container.textContent).not.toMatch(/作品已完成|正在為您作畫|LINE/);
     expect(fetchMock).not.toHaveBeenCalled();
   });
@@ -71,7 +79,9 @@ describe("SuccessCard", () => {
   });
 
   it("still works without a roster name", () => {
-    const { container } = render(<SuccessCard view={{ ...READY, guestName: null }} />);
+    const { container } = render(
+      <SuccessCard view={{ ...READY, guestName: null }} />,
+    );
     expect(container.querySelector(".celebration-name")).toBeNull();
     expect(container.textContent).toContain("照片已經收到");
   });
@@ -82,9 +92,17 @@ describe("SuccessCard", () => {
   });
 });
 
-function fillCheckIn(container: HTMLElement, name = "王小美", phone = "0911-111-111") {
-  fireEvent.change(container.querySelector("#check-in-name")!, { target: { value: name } });
-  fireEvent.change(container.querySelector("#check-in-phone")!, { target: { value: phone } });
+function fillCheckIn(
+  container: HTMLElement,
+  name = "王小美",
+  phone = "0911-111-111",
+) {
+  fireEvent.change(container.querySelector("#check-in-name")!, {
+    target: { value: name },
+  });
+  fireEvent.change(container.querySelector("#check-in-phone")!, {
+    target: { value: phone },
+  });
   fireEvent.submit(container.querySelector("form")!);
 }
 
@@ -105,16 +123,22 @@ describe("CheckInCard", () => {
         portrait: { status: null, url: null },
       }),
     );
-    const { container, findByText } = render(<CheckInCard availability="open" />);
+    const { container, findByText } = render(
+      <CheckInCard availability="open" />,
+    );
 
     fillCheckIn(container);
 
     expect(await findByText("報到成功，歡迎蒞臨")).toBeTruthy();
-    expect(container.querySelector(".celebration-ticket strong")?.textContent).toBe("A1");
+    expect(
+      container.querySelector(".celebration-ticket strong")?.textContent,
+    ).toBe("A1");
     expect(container.textContent).toContain("抵達時間 14:02");
     expect(fetchMock).toHaveBeenCalledWith(
       "/api/check-in",
-      expect.objectContaining({ body: JSON.stringify({ name: "王小美", phone: "0911111111" }) }),
+      expect.objectContaining({
+        body: JSON.stringify({ name: "王小美", phone: "0911111111" }),
+      }),
     );
   });
 
@@ -128,7 +152,9 @@ describe("CheckInCard", () => {
         portrait: { status: null, url: null },
       }),
     );
-    const { container, findByText } = render(<CheckInCard availability="open" />);
+    const { container, findByText } = render(
+      <CheckInCard availability="open" />,
+    );
     fillCheckIn(container);
 
     expect(await findByText("您已完成報到")).toBeTruthy();
@@ -140,10 +166,14 @@ describe("CheckInCard", () => {
     fetchMock.mockResolvedValue(
       Response.json({ error: "找不到你的報名資料" }, { status: 403 }),
     );
-    const { container, findByRole } = render(<CheckInCard availability="open" />);
+    const { container, findByRole } = render(
+      <CheckInCard availability="open" />,
+    );
     fillCheckIn(container);
 
-    expect((await findByRole("alert")).textContent).toContain("找不到你的報名資料");
+    expect((await findByRole("alert")).textContent).toContain(
+      "找不到你的報名資料",
+    );
     expect(container.querySelector("#check-in-name")).toBeTruthy();
   });
 
@@ -168,16 +198,62 @@ describe("CheckInCard", () => {
         portrait: { status: "complete", url: "/api/check-in/portrait/tok" },
       }),
     );
-    const { container, findByAltText, getByText } = render(<CheckInCard availability="open" />);
+    const { container, findByAltText, getByText } = render(
+      <CheckInCard availability="open" />,
+    );
     fillCheckIn(container);
 
     expect((await findByAltText("您的路老師似顏繪")).getAttribute("src")).toBe(
       "/api/check-in/portrait/tok",
     );
     const save = getByText("儲存作品").closest("a")!;
-    expect(save.getAttribute("href")).toBe("/api/check-in/portrait/tok?download=1");
+    expect(save.getAttribute("href")).toBe(
+      "/api/check-in/portrait/tok?download=1",
+    );
     expect(save.hasAttribute("download")).toBe(true);
     expect(container.querySelector(".celebration-seal")?.textContent).toBe("");
+  });
+
+  it("offers real avatar replacement at check-in without requiring a fresh creation link", async () => {
+    process.env.NEXT_PUBLIC_RT_AVATAR_ENABLED = "true";
+    process.env.NEXT_PUBLIC_RT_FIREBASE_API_KEY = "public-key";
+    process.env.NEXT_PUBLIC_RT_FIREBASE_AUTH_DOMAIN = "rt-test.firebaseapp.com";
+    process.env.NEXT_PUBLIC_RT_FIREBASE_PROJECT_ID = "rt-test";
+    process.env.NEXT_PUBLIC_RT_SET_AVATAR_URL =
+      "https://rt.example/bloomSetAvatar";
+    fetchMock.mockResolvedValue(
+      Response.json({
+        name: "測試來賓",
+        seat: "A1",
+        checkedInAt: "2026-11-10T06:02:00.000Z",
+        alreadyCheckedIn: false,
+        portrait: {
+          status: "complete",
+          url: `/api/check-in/portrait/${"t".repeat(43)}`,
+        },
+      }),
+    );
+    const { container, findByAltText, getByRole, queryByRole, getByLabelText } =
+      render(<CheckInCard availability="open" />);
+    fillCheckIn(container);
+    await findByAltText("您的路老師似顏繪");
+    expect(queryByRole("dialog")).toBeNull();
+    expect(getByRole("link", { name: /儲存作品/ })).toBeTruthy();
+    const action = getByRole("button", { name: "一鍵替換成路老師系統大頭貼" });
+    action.focus();
+    fireEvent.click(action);
+    const modal = getByRole("dialog");
+    expect(modal.closest(".celebration-card")).toBeNull();
+    expect(document.activeElement).toBe(getByLabelText(/電子郵件/));
+    fireEvent.change(getByLabelText(/密碼/), {
+      target: { value: "do-not-keep" },
+    });
+    fireEvent.click(getByRole("button", { name: "取消" }));
+    expect(queryByRole("dialog")).toBeNull();
+    expect(document.activeElement).toBe(action);
+    fireEvent.click(action);
+    expect((getByLabelText(/密碼/) as HTMLInputElement).value).toBe("");
+    expect(fetchMock).toHaveBeenCalledTimes(1);
   });
 
   it("lets a guest look again while the portrait is still being painted", async () => {
@@ -200,7 +276,9 @@ describe("CheckInCard", () => {
           portrait: { status: "complete", url: "/api/check-in/portrait/tok" },
         }),
       );
-    const { container, findByText, findByAltText } = render(<CheckInCard availability="open" />);
+    const { container, findByText, findByAltText } = render(
+      <CheckInCard availability="open" />,
+    );
     fillCheckIn(container);
 
     fireEvent.click(await findByText("再看一次"));
@@ -222,16 +300,22 @@ describe("CheckInCard", () => {
         portrait: { status: null, url: null },
       }),
     );
-    const { container, findByText } = render(<CheckInCard availability="open" />);
+    const { container, findByText } = render(
+      <CheckInCard availability="open" />,
+    );
     fillCheckIn(container);
 
     expect(await findByText("您還沒有建立似顏繪，歡迎現場體驗。")).toBeTruthy();
-    expect(container.querySelector('a[href="/"]')?.textContent).toContain("體驗路老師似顏繪");
+    expect(container.querySelector('a[href="/"]')?.textContent).toContain(
+      "體驗路老師似顏繪",
+    );
     expect(container.textContent).not.toContain("儲存作品");
   });
 
   it("validates before calling the server", () => {
-    const { container, getByRole } = render(<CheckInCard availability="open" />);
+    const { container, getByRole } = render(
+      <CheckInCard availability="open" />,
+    );
     fillCheckIn(container, "王小美", "12345");
 
     expect(getByRole("alert").textContent).toContain("09 開頭");

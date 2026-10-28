@@ -5,16 +5,45 @@
  *
  * The real implementation signs the guest in against the road-teacher
  * Firebase project (browser → Google identitytoolkit; the password never
- * touches Bloom servers) and returns the Firebase ID token. Until that
- * project's web config is provisioned, a mock provider — enabled via
- * NEXT_PUBLIC_RT_MOCK, set only in dev builds — simulates the same promise
- * surface so the guest flow works end to end locally.
+ * touches Bloom servers) and returns the Firebase ID token. A mock provider
+ * remains available via NEXT_PUBLIC_RT_MOCK only outside production builds.
  *
  * This module is deliberately the only place that ever handles the password.
- * See docs/road-teacher-auth-plan.md §4 Phase 2 for the real implementation.
+ * See docs/road-teacher-auth-plan.md for the cross-system contract.
  */
 
-import { isRoadTeacherMockEnabled } from "@/lib/road-teacher-flags";
+import {
+  getRoadTeacherConfig,
+  isRoadTeacherMockEnabled,
+} from "@/lib/road-teacher-flags";
+import type { Auth } from "firebase/auth";
+
+let authPromise: Promise<Auth> | null = null;
+
+async function roadTeacherAuth() {
+  const config = getRoadTeacherConfig();
+  if (!config) throw new Error("路老師系統尚未開通，請稍後再試。");
+  authPromise ??= (async () => {
+    const { getApps, initializeApp } = await import("firebase/app");
+    const { initializeAuth, inMemoryPersistence } =
+      await import("firebase/auth");
+    const app =
+      getApps().find((item) => item.name === "road-teacher") ??
+      initializeApp(
+        {
+          apiKey: config.apiKey,
+          authDomain: config.authDomain,
+          projectId: config.projectId,
+        },
+        "road-teacher",
+      );
+    return initializeAuth(app, { persistence: inMemoryPersistence });
+  })().catch((error) => {
+    authPromise = null;
+    throw error;
+  });
+  return authPromise;
+}
 
 export {
   isLegacyIdentityClaimEnabled,
@@ -85,14 +114,25 @@ export async function signInToRoadTeacher(email: string, password: string) {
     return mockSignIn(email, password);
   }
 
-  // Real path (plan §4 Phase 2): initializeApp with the RT web config under a
-  // named app, setPersistence(inMemoryPersistence), signInWithEmailAndPassword,
-  // return cred.user.getIdToken(). Blocked on the RT project being provisioned.
-  throw new Error("路老師系統尚未開通，請稍後再試。");
+  const auth = await roadTeacherAuth();
+  const { signInWithEmailAndPassword, signOut } = await import("firebase/auth");
+  try {
+    const credential = await signInWithEmailAndPassword(
+      auth,
+      email.trim(),
+      password,
+    );
+    return await credential.user.getIdToken();
+  } catch (error) {
+    await signOut(auth).catch(() => {});
+    throw error;
+  }
 }
 
 export async function forgetRoadTeacherSession() {
-  // Mock keeps no session. The real path calls signOut on the named RT app.
+  if (!authPromise) return;
+  const { signOut } = await import("firebase/auth");
+  await signOut(await authPromise);
 }
 
 /**

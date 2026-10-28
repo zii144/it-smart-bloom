@@ -4,7 +4,7 @@ import Image from "next/image";
 import { useCallback, useEffect, useState } from "react";
 import { BloomMark } from "@/components/brand";
 import { DevImageSettingsModal } from "@/components/dev-image-settings-modal";
-import { RoadTeacherLoginModal } from "@/components/road-teacher-login-modal";
+import { RoadTeacherAvatarAction } from "@/components/road-teacher-avatar-action";
 import {
   FACEBOOK_SHARE_QUOTE,
   buildFacebookShareUrl,
@@ -131,12 +131,11 @@ export function SessionExperience({
   const [error, setError] = useState<string | null>(null);
   const [showSettings, setShowSettings] = useState(false);
   const [pendingForce, setPendingForce] = useState(false);
-  const [lastOptions, setLastOptions] =
-    useState<ImageGenerationOptions | null>(null);
+  const [lastOptions, setLastOptions] = useState<ImageGenerationOptions | null>(
+    null,
+  );
   const [now, setNow] = useState(() => Date.now());
   const [offline, setOffline] = useState(false);
-  const [showRtLogin, setShowRtLogin] = useState(false);
-  const [avatarMessage, setAvatarMessage] = useState<string | null>(null);
 
   const applySession = useCallback((next: SessionStatus) => {
     setSession(next);
@@ -257,9 +256,7 @@ export function SessionExperience({
         // its own because the server may still be rendering.
         if (latestStatus !== "complete") {
           setError(
-            caught instanceof Error
-              ? caught.message
-              : "無法完成你的人像創作。",
+            caught instanceof Error ? caught.message : "無法完成你的人像創作。",
           );
         }
       }
@@ -473,26 +470,7 @@ export function SessionExperience({
               </button>
             </div>
 
-            {isRoadTeacherAvatarUiEnabled() && (
-              <div className="avatar-cta">
-                <button
-                  type="button"
-                  className="primary-button avatar-button"
-                  onClick={() => {
-                    setAvatarMessage(null);
-                    setShowRtLogin(true);
-                  }}
-                >
-                  一鍵替換成路老師系統大頭貼
-                </button>
-                <p className="avatar-hint">
-                  需登入路老師系統帳號，確認由本人替換。
-                </p>
-                {avatarMessage && (
-                  <p className="avatar-message">{avatarMessage}</p>
-                )}
-              </div>
-            )}
+            <RoadTeacherAvatarAction sessionId={id} />
 
             {tuningEnabled && (
               <button
@@ -580,7 +558,9 @@ export function SessionExperience({
               <>
                 <div
                   className={
-                    connecting ? "progress-track" : "progress-track is-determinate"
+                    connecting
+                      ? "progress-track"
+                      : "progress-track is-determinate"
                   }
                   role="progressbar"
                   aria-valuemin={0}
@@ -635,20 +615,6 @@ export function SessionExperience({
           </div>
         )}
       </section>
-
-      <RoadTeacherLoginModal
-        open={showRtLogin}
-        sessionId={id}
-        onCancel={() => setShowRtLogin(false)}
-        onSuccess={(result) => {
-          setShowRtLogin(false);
-          setAvatarMessage(
-            result.mock
-              ? "開發模擬：已走完替換流程，未真正更新大頭貼。"
-              : "已更新路老師系統大頭貼。",
-          );
-        }}
-      />
 
       {tuningEnabled && (
         <DevImageSettingsModal

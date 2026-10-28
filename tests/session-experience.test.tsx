@@ -74,30 +74,35 @@ function mockFetch(options: {
 }) {
   const generateCalls: unknown[] = [];
 
-  const fetchMock = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
-    const url = String(input);
+  const fetchMock = vi.fn(
+    async (input: RequestInfo | URL, init?: RequestInit) => {
+      const url = String(input);
 
-    if (url.includes("/api/dev/image-options")) {
-      return new Response(
-        JSON.stringify({ defaults: DEV_DEFAULTS, hasApiKey: true }),
-        { status: 200 },
-      );
-    }
+      if (url.includes("/api/dev/image-options")) {
+        return new Response(
+          JSON.stringify({ defaults: DEV_DEFAULTS, hasApiKey: true }),
+          { status: 200 },
+        );
+      }
 
-    if (url.endsWith("/generate")) {
-      generateCalls.push(init?.body ? JSON.parse(String(init.body)) : null);
-      const payload = options.generate?.() ?? options.status();
-      return new Response(JSON.stringify(payload), { status: 200 });
-    }
+      if (url.endsWith("/generate")) {
+        generateCalls.push(init?.body ? JSON.parse(String(init.body)) : null);
+        const payload = options.generate?.() ?? options.status();
+        return new Response(JSON.stringify(payload), { status: 200 });
+      }
 
-    if (options.statusError) {
-      return new Response(JSON.stringify({ error: options.statusError.error }), {
-        status: options.statusError.status,
-      });
-    }
+      if (options.statusError) {
+        return new Response(
+          JSON.stringify({ error: options.statusError.error }),
+          {
+            status: options.statusError.status,
+          },
+        );
+      }
 
-    return new Response(JSON.stringify(options.status()), { status: 200 });
-  });
+      return new Response(JSON.stringify(options.status()), { status: 200 });
+    },
+  );
 
   vi.stubGlobal("fetch", fetchMock);
   return { fetchMock, generateCalls };
@@ -116,7 +121,9 @@ describe("SessionExperience — guest journey", () => {
     render(<SessionExperience id={SESSION_ID} tuningEnabled={false} />);
 
     expect(
-      await screen.findByRole("heading", { name: "你的似顏繪，正在悄悄綻放。" }),
+      await screen.findByRole("heading", {
+        name: "你的似顏繪，正在悄悄綻放。",
+      }),
     ).toBeDefined();
     expect(screen.getByRole("progressbar")).toBeDefined();
     expect(screen.getByText(/0:0\d/)).toBeDefined();
@@ -149,9 +156,7 @@ describe("SessionExperience — guest journey", () => {
     expect(download.getAttribute("href")).toBe(
       `/api/sessions/${SESSION_ID}/image?kind=result&download=1`,
     );
-    expect(
-      screen.getByRole("button", { name: "分享到臉書" }),
-    ).toBeDefined();
+    expect(screen.getByRole("button", { name: "分享到臉書" })).toBeDefined();
     // Avatar replacement stays hidden until the RT mock/bridge is enabled.
     expect(
       screen.queryByRole("button", { name: "一鍵替換成路老師系統大頭貼" }),
@@ -160,6 +165,7 @@ describe("SessionExperience — guest journey", () => {
 
   it("opens the road-teacher login sheet only when the guest asks", async () => {
     process.env.NEXT_PUBLIC_RT_MOCK = "true";
+    process.env.NEXT_PUBLIC_RT_AVATAR_ENABLED = "true";
     mockFetch({
       status: () =>
         sessionPayload({
@@ -339,7 +345,9 @@ describe("SessionExperience — connectivity", () => {
     await vi.advanceTimersByTimeAsync(13_000);
 
     await waitFor(() =>
-      expect(screen.getByRole("heading", { name: "連不上創作空間。" })).toBeDefined(),
+      expect(
+        screen.getByRole("heading", { name: "連不上創作空間。" }),
+      ).toBeDefined(),
     );
     expect(screen.getByRole("button", { name: "重新整理" })).toBeDefined();
   });
@@ -434,9 +442,12 @@ describe("SessionExperience — stalled render", () => {
       "fetch",
       vi.fn(async (input: RequestInfo | URL) => {
         if (String(input).endsWith("/generate")) {
-          return new Response(JSON.stringify({ error: "尚未設定 OPENAI_API_KEY。" }), {
-            status: 500,
-          });
+          return new Response(
+            JSON.stringify({ error: "尚未設定 OPENAI_API_KEY。" }),
+            {
+              status: 500,
+            },
+          );
         }
         // The server never actually started, so polling keeps saying "ready".
         return new Response(

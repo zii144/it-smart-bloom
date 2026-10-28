@@ -1,6 +1,7 @@
 "use client";
 
 import Image from "next/image";
+import { RoadTeacherAvatarAction } from "@/components/road-teacher-avatar-action";
 import Link from "next/link";
 import { useRef, useState } from "react";
 import {
@@ -117,7 +118,8 @@ function DoneCard({
   refreshing: boolean;
 }) {
   const time = formatTaipeiTime(done.checkedInAt);
-  const portraitUrl = done.portrait.status === "complete" ? done.portrait.url : null;
+  const portraitUrl =
+    done.portrait.status === "complete" ? done.portrait.url : null;
 
   return (
     <InvitationCard className="celebration-card" labelledBy="check-in-title">
@@ -165,6 +167,11 @@ function DoneCard({
           </span>
         </Link>
       ) : null}
+      {portraitUrl && (
+        <RoadTeacherAvatarAction
+          checkInToken={portraitUrl.split("/").at(-1)!}
+        />
+      )}
       <p className="invitation-footnote">把一路走來的光，畫成你的模樣</p>
     </InvitationCard>
   );
@@ -198,7 +205,8 @@ export function CheckInCard({
       />
     );
   }
-  if (state !== "open") return <ClosedCard unavailable={state === "unavailable"} />;
+  if (state !== "open")
+    return <ClosedCard unavailable={state === "unavailable"} />;
 
   async function submit() {
     if (submitting) return;

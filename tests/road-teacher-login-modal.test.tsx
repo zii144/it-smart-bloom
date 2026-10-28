@@ -57,6 +57,7 @@ function fillAndSubmit(email: string, password: string) {
 }
 
 beforeEach(() => {
+  process.env.NEXT_PUBLIC_RT_AVATAR_ENABLED = "true";
   process.env.NEXT_PUBLIC_RT_MOCK = "true";
 });
 
@@ -145,9 +146,7 @@ describe("RoadTeacherLoginModal", () => {
 
     fillAndSubmit("guest@example.com", "sunny-day");
 
-    await waitFor(() =>
-      expect(onSuccess).toHaveBeenCalledWith({ mock: true }),
-    );
+    await waitFor(() => expect(onSuccess).toHaveBeenCalledWith({ mock: true }));
 
     expect(setAvatarCalls).toHaveLength(1);
     expect(setAvatarCalls[0].auth?.startsWith("Bearer mock-rt-idtoken-")).toBe(
@@ -160,8 +159,8 @@ describe("RoadTeacherLoginModal", () => {
       ),
     });
 
-    await waitFor(() => expect(resultCalls).toHaveLength(1));
-    expect(resultCalls[0]).toMatchObject({ ok: true });
+    // A simulated replacement must never be recorded as real avatar success.
+    expect(resultCalls).toHaveLength(0);
   });
 
   it("surfaces an avatar endpoint failure inline", async () => {

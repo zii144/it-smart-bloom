@@ -4,7 +4,26 @@ Replace the unauthenticated LINE ID / mobile identity claim with a real
 Firebase Auth sign-in against the road-teacher (RT) project, and move avatar
 replacement into an RT-owned Cloud Function.
 
-**Status:** frontend layer shipped with a mocked flow (2026-07-30) — login
+**Bloom implementation update (2026-10-28):** real Firebase email/password
+sign-in, memory-only auth, single-use Firestore portrait transfer tickets,
+and advisory avatar-result reporting are implemented in Bloom. The avatar
+action is shared by `/s/[id]` and check-in handover; the latter uses its
+check-in capability after creation-link expiry. Mock transfers cannot run
+in production builds or record a real avatar success. The legacy identity
+subsystem remains disabled by default; no historical identity data was
+deleted. Production activation still requires the four RT public settings
+and the operational RT endpoint, CORS, and allowed Bloom portrait host.
+This update does not verify or deploy any code in the RT repository.
+The feature is currently hidden by request: `NEXT_PUBLIC_RT_AVATAR_ENABLED`
+defaults off and is false locally. RT settings remain empty. Neither real
+configuration nor mock mode can expose the UI without explicitly opting in.
+
+The phases below are the original design. Phase 4 (legacy identity removal)
+and Phase 6 (historical data cleanup) are separate work, not prerequisites
+for the new authenticated path. Guest name/mobile roster matching is still
+required and must not be removed with the legacy identity subsystem.
+
+**Earlier status:** frontend layer shipped with a mocked flow (2026-07-30) — login
 sheet, client auth/orchestration modules (`road-teacher-auth.ts`,
 `road-teacher-client.ts`, `road-teacher-login-modal.tsx`), and the
 `/api/dev/set-avatar` stub, gated by `NEXT_PUBLIC_RT_MOCK` (dev builds only).
