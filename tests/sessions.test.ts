@@ -1,6 +1,6 @@
 import { rm } from "node:fs/promises";
 import path from "node:path";
-import { describe, expect, it, vi } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import {
   createSession,
   getSession,
@@ -382,5 +382,96 @@ describe("serverless session storage", () => {
 
     vi.doUnmock("@/lib/portrait-archive");
     vi.resetModules();
+  });
+});
+
+describe("getSession with a copy on another server instance (QA 10/27)", () => {
+  /** The Firestore record another instance wrote, as readArchiveRecord returns it. */
+  function archiveRecord(
+    session: { id: string; createdAt: string; expiresAt: string; inputMime: string },
+    changes: Record<string, unknown>,
+  ) {
+    return {
+      sessionId: session.id,
+      status: "ready",
+      createdAt: session.createdAt,
+      expiresAt: session.expiresAt,
+      updatedAt: session.createdAt,
+      generationStartedAt: null,
+      generationAttempts: 0,
+      error: null,
+      inputMime: session.inputMime,
+      resultMime: null,
+      generationOptions: null,
+      identityKind: null,
+      identityValue: null,
+      identityKey: null,
+      claimedAt: null,
+      storage: { inputPath: null, resultPath: null, identityInputPath: null, identityResultPath: null },
+      ...changes,
+    };
+  }
+
+  async function withArchive(readArchiveRecord: () => Promise<unknown>) {
+    vi.resetModules();
+    vi.doMock("@/lib/portrait-archive", () => ({
+      readArchiveRecord: vi.fn(readArchiveRecord),
+      readArchiveImage: vi.fn(async () => null),
+    }));
+    return import("@/lib/sessions");
+  }
+
+  afterEach(() => {
+    vi.doUnmock("@/lib/portrait-archive");
+    vi.resetModules();
+  });
+
+  it("follows a render that finished on another instance instead of waiting forever", async () => {
+    const created = await createSession(imageFile(jpegBytes(64)));
+    // This instance cached the session while it was still rendering…
+    const stale = await updateSession(created.id, {
+      status: "generating",
+      generationStartedAt: created.createdAt,
+      generationAttempts: 1,
+    });
+    // …and another instance finished it later.
+    const finishedAt = new Date(Date.parse(stale.updatedAt!) + 90_000).toISOString();
+    const sessions = await withArchive(async () =>
+      archiveRecord(created, {
+        status: "complete",
+        updatedAt: finishedAt,
+        generationStartedAt: created.createdAt,
+        generationAttempts: 1,
+        resultMime: "image/jpeg",
+      }),
+    );
+
+    const current = await sessions.getSession(created.id);
+
+    expect(current).toMatchObject({ status: "complete", resultMime: "image/jpeg" });
+    expect(sessions.publicSession(current).resultUrl).toContain("kind=result");
+    // The local copy is refreshed, so later reads agree even without Firestore.
+    const again = await withArchive(async () => null);
+    await expect(again.getSession(created.id)).resolves.toMatchObject({ status: "complete" });
+  });
+
+  it("keeps its own newer copy while its archive write is still on the way", async () => {
+    const created = await createSession(imageFile(jpegBytes(64)));
+    await updateSession(created.id, { status: "complete", resultMime: "image/jpeg" });
+    const sessions = await withArchive(async () =>
+      archiveRecord(created, { status: "generating", updatedAt: created.createdAt }),
+    );
+
+    await expect(sessions.getSession(created.id)).resolves.toMatchObject({ status: "complete" });
+  });
+
+  it("still answers from the local copy when Firestore cannot be read", async () => {
+    const created = await createSession(imageFile(jpegBytes(64)));
+    vi.spyOn(console, "warn").mockImplementation(() => {});
+    const sessions = await withArchive(async () => {
+      throw new Error("firestore unavailable");
+    });
+
+    await expect(sessions.getSession(created.id)).resolves.toMatchObject({ status: "ready" });
   });
 });

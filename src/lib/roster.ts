@@ -198,7 +198,15 @@ export function emptyRosterFields(): RosterFields {
 
 // —— Workbook parsing ——
 
-export type RosterSheet = { sheet: string; data: unknown[][] };
+export type RosterSheet = {
+  sheet: string;
+  data: unknown[][];
+  /** Hidden in Excel: usually an old copy kept around, never the live list. */
+  hidden?: boolean;
+};
+
+/** Another sheet that also had 姓名 and 手機 but was not imported. */
+export type RosterOtherSheet = { name: string; hidden: boolean };
 
 export type ParsedRosterRow = {
   /** 1-based row number as Excel shows it, for messages to the admin. */
@@ -221,6 +229,7 @@ export type RosterIssue = {
 
 export type ParsedRoster = {
   sheet: string;
+  otherSheets: RosterOtherSheet[];
   rows: ParsedRosterRow[];
   issues: RosterIssue[];
   ignoredColumns: string[];
@@ -265,25 +274,35 @@ function findHeaderRow(data: unknown[][]) {
 }
 
 /**
- * Picks the first sheet whose header row has both 姓名 and 手機, then turns
- * each data row into a person. Rows without a name are reported and skipped;
- * a missing or unreadable mobile is imported with a warning, because that
- * person simply cannot match until the admin fills it in.
+ * Picks the sheet to import among those whose header row has both 姓名 and
+ * 手機: visible sheets before hidden ones (a hidden sheet is typically an old
+ * copy), and among those the sheet that was open when the file was saved,
+ * else the first. Then turns each data row into a person. Rows without a name
+ * are reported and skipped; a missing or unreadable mobile is imported with a
+ * warning, because that person simply cannot match until the admin fills it in.
  */
-export function parseRosterSheets(sheets: RosterSheet[]): ParsedRoster {
-  let chosen: { sheet: RosterSheet; header: NonNullable<ReturnType<typeof findHeaderRow>> } | null =
-    null;
-  for (const sheet of sheets) {
+export function parseRosterSheets(
+  sheets: RosterSheet[],
+  { activeSheet = null }: { activeSheet?: string | null } = {},
+): ParsedRoster {
+  const candidates = sheets.flatMap((sheet) => {
     const header = findHeaderRow(sheet.data);
-    if (header) {
-      chosen = { sheet, header };
-      break;
-    }
-  }
-
-  if (!chosen) {
+    return header ? [{ sheet, header }] : [];
+  });
+  if (!candidates.length) {
     throw new RosterInputError("找不到同時有「姓名」與「手機」欄位的工作表。");
   }
+
+  const visible = candidates.filter((candidate) => !candidate.sheet.hidden);
+  const pool = visible.length ? visible : candidates;
+  const chosen =
+    pool.find((candidate) => candidate.sheet.sheet === activeSheet) ?? pool[0]!;
+  const otherSheets = candidates
+    .filter((candidate) => candidate !== chosen)
+    .map((candidate) => ({
+      name: candidate.sheet.sheet,
+      hidden: Boolean(candidate.sheet.hidden),
+    }));
 
   const { sheet, header } = chosen;
   const headerCells = sheet.data[header.index] ?? [];
@@ -393,7 +412,7 @@ export function parseRosterSheets(sheets: RosterSheet[]): ParsedRoster {
     });
   });
 
-  return { sheet: sheet.sheet, rows, issues, ignoredColumns };
+  return { sheet: sheet.sheet, otherSheets, rows, issues, ignoredColumns };
 }
 
 // —— Import planning ——
@@ -404,6 +423,7 @@ export type RosterPatch = Partial<
 
 export type RosterImportPlan = {
   sheet: string;
+  otherSheets: RosterOtherSheet[];
   creates: ParsedRosterRow[];
   updates: {
     id: string;
@@ -511,6 +531,7 @@ export function planRosterImport(
 
   const plan: RosterImportPlan = {
     sheet: parsed.sheet,
+    otherSheets: parsed.otherSheets,
     creates: [],
     updates: [],
     unchanged: 0,
@@ -577,6 +598,7 @@ export function planRosterImport(
 export type RosterImportSummary = {
   mode: "preview" | "apply";
   sheet: string;
+  otherSheets: RosterOtherSheet[];
   creates: { row: number; name: string; mobile: string | null; seat: string }[];
   updates: { row: number; name: string; changes: string[] }[];
   unchanged: number;
@@ -591,6 +613,7 @@ export function summarizeRosterImport(
   return {
     mode,
     sheet: plan.sheet,
+    otherSheets: plan.otherSheets,
     creates: plan.creates.map((row) => ({
       row: row.row,
       name: row.name,

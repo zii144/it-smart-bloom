@@ -85,8 +85,11 @@ unreachable, the booth fails closed with a 503.
 
 Manage the roster in the admin dashboard's **名單管理** tab:
 
-- **Import from Excel (.xlsx).** The first sheet with both 姓名 and 手機
-  columns is used. The importer shows a preview (new / updated / unchanged /
+- **Import from Excel (.xlsx).** Among the sheets with both 姓名 and 手機
+  columns, hidden sheets are skipped (they are usually old copies), and the
+  sheet that was open when the file was saved wins; otherwise the first one.
+  The preview names the sheet used and lists the other roster-like sheets it
+  did not import. The importer shows a preview (new / updated / unchanged /
   rows to check) before anything is written. Imports only add and update:
   nobody is deleted, and blank cells never erase existing values. Phone
   numbers like `0912-345-678`, `+886 912…`, or a number cell that lost its
