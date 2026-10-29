@@ -321,10 +321,16 @@ export type ListArchiveResult = {
   error: string | null;
 };
 
+/**
+ * Newest first. `before` is the `createdAt` of the last row already shown, so
+ * the admin list can page past the first batch without re-reading it.
+ */
 export async function listArchiveSessions({
   limit = 50,
+  before,
 }: {
   limit?: number;
+  before?: string | null;
 } = {}): Promise<ListArchiveResult> {
   if (!isFirebaseConfigured()) {
     return { sessions: [], error: "Firebase is not configured." };
@@ -338,11 +344,9 @@ export async function listArchiveSessions({
   const capped = Math.min(Math.max(limit, 1), 200);
 
   try {
-    const snap = await db
-      .collection("sessions")
-      .orderBy("createdAt", "desc")
-      .limit(capped)
-      .get();
+    let query = db.collection("sessions").orderBy("createdAt", "desc");
+    if (before) query = query.startAfter(before);
+    const snap = await query.limit(capped).get();
 
     const sessions = snap.docs.map((doc) => {
       const data = doc.data() as ArchiveRecord;
@@ -358,5 +362,38 @@ export async function listArchiveSessions({
       error instanceof Error ? error.message : "Failed to list archive sessions.";
     console.error("listArchiveSessions failed:", error);
     return { sessions: [], error: message };
+  }
+}
+
+export type ArchiveCounts = {
+  total: number;
+  complete: number;
+  failed: number;
+};
+
+/**
+ * True totals for the admin metrics. Count aggregations bill one read per
+ * 1,000 matched docs, so the 5-second dashboard poll stays cheap.
+ */
+export async function countArchiveSessions(): Promise<ArchiveCounts | null> {
+  if (!isFirebaseConfigured()) return null;
+  const db = getDb();
+  if (!db) return null;
+
+  try {
+    const sessions = db.collection("sessions");
+    const [total, complete, failed] = await Promise.all([
+      sessions.count().get(),
+      sessions.where("status", "==", "complete").count().get(),
+      sessions.where("status", "==", "failed").count().get(),
+    ]);
+    return {
+      total: total.data().count,
+      complete: complete.data().count,
+      failed: failed.data().count,
+    };
+  } catch (error) {
+    console.error("countArchiveSessions failed:", error);
+    return null;
   }
 }
