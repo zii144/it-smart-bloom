@@ -1,5 +1,6 @@
 import { beforeEach, describe, expect, it } from "vitest";
 import { GET } from "@/app/api/admin30910/route";
+import { GET as getArchivePage } from "@/app/api/admin30910/archive/route";
 import { GET as getAdminImage } from "@/app/api/admin30910/sessions/[id]/image/route";
 import { createAdminToken } from "@/lib/admin-auth";
 import { createSession, writeResultImage } from "@/lib/sessions";
@@ -54,6 +55,8 @@ describe("GET /api/admin30910", () => {
       resultUrl: `/api/sessions/${session.id}/image?kind=result`,
     });
     expect(Array.isArray(payload.archiveSessions)).toBe(true);
+    // Firebase is off in unit tests, so there is no whole-collection total.
+    expect(payload.archiveCounts).toBeNull();
   });
 
   it("omits resultUrl for incomplete local sessions", async () => {
@@ -74,6 +77,30 @@ describe("GET /api/admin30910", () => {
       inputUrl: `/api/sessions/${session.id}/image?kind=input`,
       resultUrl: null,
     });
+  });
+});
+
+describe("GET /api/admin30910/archive", () => {
+  it("returns 401 without credentials", async () => {
+    process.env.ADMIN_DASHBOARD_SECRET = "s3cret";
+    const response = await getArchivePage(
+      new Request("http://booth.local/api/admin30910/archive?before=x"),
+    );
+    expect(response.status).toBe(401);
+  });
+
+  it("reports the archive as unavailable when Firebase is off", async () => {
+    process.env.ADMIN_DASHBOARD_SECRET = "s3cret";
+    const token = createAdminToken();
+
+    const response = await getArchivePage(
+      new Request("http://booth.local/api/admin30910/archive?before=x", {
+        headers: { cookie: `bloom_admin=${token}` },
+      }),
+    );
+
+    expect(response.status).toBe(503);
+    expect(await response.json()).toMatchObject({ sessions: [] });
   });
 });
 

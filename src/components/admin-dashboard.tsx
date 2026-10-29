@@ -8,6 +8,7 @@ import { AdminRosterPanel } from "@/components/admin-roster-panel";
 import { BloomMark } from "@/components/brand";
 import { formatTaipeiShort } from "@/lib/event-info";
 import type { ImageGenerationOptions } from "@/lib/image-options";
+import type { ArchiveCounts } from "@/lib/portrait-archive";
 import type { RosterEntry } from "@/lib/roster";
 import type { SpendSnapshot } from "@/lib/image-spend";
 
@@ -45,6 +46,8 @@ export type AdminDashboardPayload = {
   spend: SpendSnapshot;
   localSessions: AdminSessionRow[];
   archiveSessions: AdminSessionRow[];
+  /** Whole-collection totals; null when Firebase is off or the count failed. */
+  archiveCounts: ArchiveCounts | null;
   archiveError: string | null;
 };
 
@@ -199,17 +202,38 @@ function sessionGuestLabel(
 function SessionPanel({
   title,
   rows,
+  total = null,
+  onLoadMore,
   empty,
   rosterNames,
 }: {
   title: string;
   rows: AdminSessionRow[];
+  /** Rows that exist beyond the loaded ones; enables loading older pages. */
+  total?: number | null;
+  onLoadMore?: () => Promise<void>;
   empty: string;
   rosterNames: ReadonlyMap<string, string> | null;
 }) {
   const [page, setPage] = useState(0);
+  const [loadingMore, setLoadingMore] = useState(false);
   const pageCount = Math.max(1, Math.ceil(rows.length / ROWS_PER_PAGE));
   const safePage = Math.min(page, pageCount - 1);
+  const hasMore = Boolean(onLoadMore) && total !== null && rows.length < total;
+  const onLastPage = safePage === pageCount - 1;
+
+  async function nextPage() {
+    if (onLastPage && hasMore && onLoadMore) {
+      setLoadingMore(true);
+      try {
+        await onLoadMore();
+      } finally {
+        setLoadingMore(false);
+      }
+    }
+    // Clamped by safePage when the load added nothing.
+    setPage(safePage + 1);
+  }
   const visibleRows = rows.slice(
     safePage * ROWS_PER_PAGE,
     (safePage + 1) * ROWS_PER_PAGE,
@@ -222,7 +246,11 @@ function SessionPanel({
           <p>資料來源</p>
           <h2>{title}</h2>
         </div>
-        <span>{rows.length} 筆</span>
+        <span>
+          {total !== null && total > rows.length
+            ? `已載入 ${rows.length}／共 ${total} 筆`
+            : `${rows.length} 筆`}
+        </span>
       </header>
       {rows.length === 0 ? (
         <p className="admin-empty">{empty}</p>
@@ -256,7 +284,7 @@ function SessionPanel({
           ))}
         </div>
       )}
-      {rows.length > ROWS_PER_PAGE && (
+      {(rows.length > ROWS_PER_PAGE || hasMore) && (
         <footer className="admin-pagination">
           <button
             type="button"
@@ -267,15 +295,14 @@ function SessionPanel({
           </button>
           <span>
             {safePage + 1} / {pageCount}
+            {hasMore ? "+" : ""}
           </span>
           <button
             type="button"
-            onClick={() =>
-              setPage((current) => Math.min(pageCount - 1, current + 1))
-            }
-            disabled={safePage === pageCount - 1}
+            onClick={() => void nextPage()}
+            disabled={loadingMore || (onLastPage && !hasMore)}
           >
-            下一頁
+            {loadingMore ? "載入中…" : onLastPage && hasMore ? "載入更早" : "下一頁"}
           </button>
         </footer>
       )}
@@ -330,6 +357,8 @@ export function AdminDashboard({
   const [rosterNames, setRosterNames] = useState<Map<string, string> | null>(
     null,
   );
+  // Archive pages past the polled newest batch; they don't auto-refresh.
+  const [olderArchive, setOlderArchive] = useState<AdminSessionRow[]>([]);
   const handleRosterEntries = useCallback((entries: RosterEntry[]) => {
     setRosterNames(new Map(entries.map((entry) => [entry.id, entry.name])));
   }, []);
@@ -371,13 +400,39 @@ export function AdminDashboard({
   }, []);
 
   const health = data.health;
-  const allSessions = [...data.archiveSessions, ...data.localSessions];
-  const completeCount = allSessions.filter(
-    (session) => session.status === "complete",
-  ).length;
-  const failedCount = allSessions.filter(
-    (session) => session.status === "failed",
-  ).length;
+  const liveArchiveIds = new Set(data.archiveSessions.map((row) => row.id));
+  const archiveRows = [
+    ...data.archiveSessions,
+    ...olderArchive.filter((row) => !liveArchiveIds.has(row.id)),
+  ];
+
+  async function loadOlderArchive() {
+    const last = archiveRows.at(-1);
+    if (!last) return;
+    const response = await fetch(
+      `/api/admin30910/archive?before=${encodeURIComponent(last.createdAt)}`,
+      { cache: "no-store", credentials: "same-origin" },
+    );
+    if (!response.ok) {
+      setError(`Load older failed (${response.status})`);
+      return;
+    }
+    const payload = (await response.json()) as { sessions: AdminSessionRow[] };
+    setOlderArchive((current) => {
+      const seen = new Set(current.map((row) => row.id));
+      return [...current, ...payload.sessions.filter((row) => !seen.has(row.id))];
+    });
+  }
+
+  // Without archive totals, count each session once: the same portrait sits in
+  // both lists while its local copy is still within the 15-minute window.
+  const uniqueSessions = new Map(
+    [...data.archiveSessions, ...data.localSessions].map((row) => [row.id, row]),
+  );
+  const countStatus = (status: string) =>
+    [...uniqueSessions.values()].filter((row) => row.status === status).length;
+  const completeCount = data.archiveCounts?.complete ?? countStatus("complete");
+  const failedCount = data.archiveCounts?.failed ?? countStatus("failed");
   const openAiReady = health.hasOpenAiKey && health.hasOpenAiPrompt;
   const roadTeacherReady =
     health.hasRoadTeacherUrl && health.hasRoadTeacherKey;
@@ -442,7 +497,7 @@ export function AdminDashboard({
         <section className="admin-metrics" aria-label="Session summary">
           <Metric
             label="Firestore"
-            value={data.archiveSessions.length}
+            value={data.archiveCounts?.total ?? data.archiveSessions.length}
             hint="封存紀錄"
           />
           <Metric
@@ -538,7 +593,9 @@ export function AdminDashboard({
       <div className="admin-panels-grid">
         <SessionPanel
           title="資料庫"
-          rows={data.archiveSessions}
+          rows={archiveRows}
+          total={data.archiveCounts?.total ?? null}
+          onLoadMore={loadOlderArchive}
           empty="尚無封存資料（或 Firebase 未連線）。"
           rosterNames={rosterNames}
         />
@@ -572,7 +629,10 @@ export function AdminDashboard({
       <div className="admin-tabpanel" hidden={tab !== "reset"}>
         <AdminResetPanel
           active={tab === "reset"}
-          onReset={() => setDataEpoch((epoch) => epoch + 1)}
+          onReset={() => {
+            setDataEpoch((epoch) => epoch + 1);
+            setOlderArchive([]);
+          }}
         />
       </div>
     </AdminChrome>
