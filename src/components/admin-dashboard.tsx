@@ -5,6 +5,7 @@ import { AdminBatchPanel } from "@/components/admin-batch-panel";
 import { AdminCheckInPanel } from "@/components/admin-check-in-panel";
 import { AdminResetPanel } from "@/components/admin-reset-panel";
 import { AdminRosterPanel } from "@/components/admin-roster-panel";
+import { AdminSubmissionsSwitch } from "@/components/admin-submissions-switch";
 import { BloomMark } from "@/components/brand";
 import { formatTaipeiShort } from "@/lib/event-info";
 import type { ImageGenerationOptions } from "@/lib/image-options";
@@ -465,6 +466,8 @@ export function AdminDashboard({
           />
         </section>
       </div>
+
+      <AdminSubmissionsSwitch />
 
       <section className="admin-health-grid" aria-label="Runtime health">
         <HealthCard

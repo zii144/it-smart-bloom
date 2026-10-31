@@ -1,16 +1,21 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { POST } from "@/app/api/roster/verify/route";
-import { RosterUnavailableError } from "@/lib/roster-store";
+import {
+  PhotoSubmissionsClosedError,
+  RosterUnavailableError,
+} from "@/lib/roster-store";
 
-const { findRosterMatchMock, isSubmittedMock } = vi.hoisted(() => ({
+const { findRosterMatchMock, isSubmittedMock, assertOpenMock } = vi.hoisted(() => ({
   findRosterMatchMock: vi.fn(),
   isSubmittedMock: vi.fn(),
+  assertOpenMock: vi.fn(),
 }));
 
 vi.mock("@/lib/roster-store", async (importOriginal) => ({
   ...(await importOriginal<typeof import("@/lib/roster-store")>()),
   findRosterMatch: findRosterMatchMock,
   isPhotoSubmitted: isSubmittedMock,
+  assertPhotoSubmissionsOpen: assertOpenMock,
 }));
 
 function verify(body: unknown, ip = "203.0.113.7") {
@@ -27,6 +32,8 @@ beforeEach(() => {
   findRosterMatchMock.mockReset();
   isSubmittedMock.mockReset();
   isSubmittedMock.mockResolvedValue(false);
+  assertOpenMock.mockReset();
+  assertOpenMock.mockResolvedValue(undefined);
 });
 
 describe("POST /api/roster/verify", () => {
@@ -49,6 +56,19 @@ describe("POST /api/roster/verify", () => {
     expect(response.status).toBe(409);
     expect(await response.json()).toMatchObject({ alreadySubmitted: true });
     expect(isSubmittedMock).toHaveBeenCalledWith("roster-1");
+  });
+
+  it("tells the booth once an admin has closed submissions", async () => {
+    assertOpenMock.mockRejectedValue(new PhotoSubmissionsClosedError());
+
+    const response = await verify({ name: "張小明", phone: "0912345678" });
+
+    expect(response.status).toBe(403);
+    expect(await response.json()).toEqual({
+      error: "提交個人照片，製作專屬小禮已截止收件。",
+      closed: true,
+    });
+    expect(findRosterMatchMock).not.toHaveBeenCalled();
   });
 
   it("rejects a guest who is not on the roster", async () => {

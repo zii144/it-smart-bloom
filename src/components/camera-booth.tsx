@@ -35,6 +35,7 @@ import {
   renderCroppedPhoto,
   type PhotoCrop,
 } from "@/lib/photo-crop";
+import { PHOTO_SUBMISSIONS_CLOSED_MESSAGE } from "@/lib/roster";
 
 type BoothStep =
   | "invitation"
@@ -117,8 +118,11 @@ function SparkIcon() {
 export function CameraBooth({
   tuningEnabled = false,
   cameraOption = false,
+  submissionsOpen = true,
 }: {
   tuningEnabled?: boolean;
+  /** Admin switch: when false, 欣然赴約 becomes a closed notice. */
+  submissionsOpen?: boolean;
   /**
    * Offers 改用現場相機 beside the photo upload. Off for guests: the booth is
    * upload-only. Kept (and tested) so a staffed kiosk can turn it back on.
@@ -129,6 +133,8 @@ export function CameraBooth({
   // so hint it early instead of waiting for the stylesheet to discover it.
   preload("/images/watercolor/invitation-paper.webp", { as: "image" });
   const [step, setStep] = useState<BoothStep>("invitation");
+  // Starts from the server's answer; flips if an admin closes it mid-visit.
+  const [submissionsClosed, setSubmissionsClosed] = useState(!submissionsOpen);
   const [guestName, setGuestName] = useState("");
   const [guestPhone, setGuestPhone] = useState("");
   const [invalidField, setInvalidField] = useState<"name" | "phone" | null>(
@@ -347,6 +353,10 @@ export function CameraBooth({
       });
       const payload = await response.json();
 
+      if (payload.closed) {
+        closeSubmissions();
+        return;
+      }
       if (!response.ok) {
         throw new Error(payload.error || "無法建立人像創作連結。");
       }
@@ -370,7 +380,15 @@ export function CameraBooth({
     window.location.assign("/");
   }
 
+  /** An admin closed submissions after this page loaded. */
+  function closeSubmissions() {
+    setSubmissionsClosed(true);
+    setError(null);
+    setStep("invitation");
+  }
+
   function acceptInvitation() {
+    if (submissionsClosed) return;
     setError(null);
     setStep("upload");
     window.requestAnimationFrame(() =>
@@ -410,7 +428,12 @@ export function CameraBooth({
       if (response.ok) return true;
       const payload = (await response.json().catch(() => null)) as {
         error?: string;
+        closed?: boolean;
       } | null;
+      if (payload?.closed) {
+        closeSubmissions();
+        return false;
+      }
       setError(payload?.error || "暫時無法確認報名資料，請稍後再試。");
       window.requestAnimationFrame(() => nameInputRef.current?.focus());
       return false;
@@ -517,15 +540,24 @@ export function CameraBooth({
               <p className="invitation-signature">
                 <span>敬邀蒞臨</span>
               </p>
-              <button
-                className="primary-button invitation-button"
-                onClick={acceptInvitation}
-              >
-                欣然赴約
-                <span className="button-arrow">
-                  <ArrowIcon />
-                </span>
-              </button>
+              {submissionsClosed ? (
+                <button
+                  className="primary-button invitation-button is-closed"
+                  disabled
+                >
+                  {PHOTO_SUBMISSIONS_CLOSED_MESSAGE}
+                </button>
+              ) : (
+                <button
+                  className="primary-button invitation-button"
+                  onClick={acceptInvitation}
+                >
+                  欣然赴約
+                  <span className="button-arrow">
+                    <ArrowIcon />
+                  </span>
+                </button>
+              )}
               <p className="invitation-footnote">為您留一席溫柔的光</p>
             </article>
           </div>

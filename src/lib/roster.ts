@@ -58,6 +58,9 @@ export type RosterInput = RosterFields & {
   extra: Record<string, string>;
 };
 
+/** Shown on the invitation button and API replies once an admin closes photo submissions. */
+export const PHOTO_SUBMISSIONS_CLOSED_MESSAGE = "提交個人照片，製作專屬小禮已截止收件。";
+
 export type CheckInSource = "self" | "admin";
 export type PortraitStatus = "ready" | "generating" | "complete" | "failed";
 

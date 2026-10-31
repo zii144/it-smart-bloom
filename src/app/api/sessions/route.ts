@@ -8,7 +8,9 @@ import {
 import { archiveSessionCreated } from "@/lib/portrait-archive";
 import { GuestRosterError, matchGuestOnRoster } from "@/lib/roster-guest";
 import {
+  assertPhotoSubmissionsOpen,
   PhotoAlreadySubmittedError,
+  PhotoSubmissionsClosedError,
   releasePhotoSubmission,
   reservePhotoSubmission,
   RosterUnavailableError,
@@ -42,6 +44,9 @@ export async function POST(request: Request) {
     if (!(image instanceof File)) {
       return Response.json({ error: "請提供一張照片。" }, { status: 400 });
     }
+
+    // Closing submissions in the admin page must stop direct API calls too.
+    await assertPhotoSubmissionsOpen();
 
     // Only guests on the roster get a portrait. Checked here, not just in the
     // booth UI, so calling the API directly cannot skip it.
@@ -133,6 +138,9 @@ export async function POST(request: Request) {
   } catch (error) {
     if (error instanceof GuestRosterError) {
       return Response.json({ error: error.message }, { status: error.status });
+    }
+    if (error instanceof PhotoSubmissionsClosedError) {
+      return Response.json({ error: error.message, closed: true }, { status: 403 });
     }
     if (error instanceof PhotoAlreadySubmittedError) {
       return Response.json(
