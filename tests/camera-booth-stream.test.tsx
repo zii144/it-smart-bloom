@@ -284,6 +284,43 @@ describe("CameraBooth stream attachment", () => {
     }
   });
 
+  it("shows the closed notice instead of 欣然赴約 once an admin closes submissions", () => {
+    const { container } = render(<CameraBooth submissionsOpen={false} />);
+
+    const closed = container.querySelector<HTMLButtonElement>(".invitation-button");
+    expect(closed?.textContent).toBe("提交個人照片，製作專屬小禮已截止收件。");
+    expect(closed?.disabled).toBe(true);
+    expect(container.textContent).not.toContain("欣然赴約");
+
+    fireEvent.click(closed!);
+    expect(container.querySelector("#guest-name")).toBeNull();
+  });
+
+  it("returns to the closed invitation if submissions close mid-visit", async () => {
+    verifyFetch.mockResolvedValue(
+      Response.json(
+        { error: "提交個人照片，製作專屬小禮已截止收件。", closed: true },
+        { status: 403 },
+      ),
+    );
+    const { container } = render(<CameraBooth />);
+    enterBooth(container);
+    fillGuestDetails(container);
+    fireEvent.change(container.querySelector('input[type="file"]')!, {
+      target: {
+        files: [new File(["photo"], "portrait.jpg", { type: "image/jpeg" })],
+      },
+    });
+    fireEvent.click(container.querySelector("button.guest-entry-submit")!);
+
+    await waitFor(() =>
+      expect(container.querySelector(".invitation-button")?.textContent).toBe(
+        "提交個人照片，製作專屬小禮已截止收件。",
+      ),
+    );
+    expect(container.querySelector("#guest-name")).toBeNull();
+  });
+
   it("keeps a guest who is not on the roster on the form", async () => {
     verifyFetch.mockResolvedValue(
       Response.json(

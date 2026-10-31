@@ -9,6 +9,7 @@ import {
   hasSubmittedPhoto,
   MAX_ROSTER_ROWS,
   normalizeRosterMobile,
+  PHOTO_SUBMISSIONS_CLOSED_MESSAGE,
   planRosterImport,
   rosterEntryFromRow,
   rosterMatchKey,
@@ -26,6 +27,7 @@ const ROSTER_COLLECTION = "roster";
 const META_COLLECTION = "rosterMeta";
 const LAST_IMPORT_DOC = "lastImport";
 const CHECK_IN_DOC = "checkIn";
+const SUBMISSIONS_DOC = "photoSubmissions";
 /** Firestore caps a batch at 500 writes; stay well under it. */
 const WRITE_BATCH_SIZE = 400;
 
@@ -47,6 +49,13 @@ export class PhotoAlreadySubmittedError extends Error {
   constructor() {
     super("您已經上傳過照片，每位來賓限一次。如需重新上傳，請洽現場工作人員。");
     this.name = "PhotoAlreadySubmittedError";
+  }
+}
+
+export class PhotoSubmissionsClosedError extends Error {
+  constructor() {
+    super(PHOTO_SUBMISSIONS_CLOSED_MESSAGE);
+    this.name = "PhotoSubmissionsClosedError";
   }
 }
 
@@ -247,6 +256,34 @@ export async function findRosterMatch(
     .get();
   const doc = snapshot.docs[0];
   return doc ? { id: doc.id } : null;
+}
+
+// —— Before the event: photo submissions ——
+
+export type PhotoSubmissionSettings = { open: boolean; updatedAt: string | null };
+
+export async function readPhotoSubmissionSettings(): Promise<PhotoSubmissionSettings> {
+  const db = requireDb();
+  const doc = await db.collection(META_COLLECTION).doc(SUBMISSIONS_DOC).get();
+  const data = doc.data() as Partial<PhotoSubmissionSettings> | undefined;
+  // Open until an admin closes it, so existing deployments keep accepting photos.
+  return { open: data?.open !== false, updatedAt: data?.updatedAt ?? null };
+}
+
+export async function setPhotoSubmissionsOpen(
+  open: boolean,
+): Promise<PhotoSubmissionSettings> {
+  const db = requireDb();
+  const settings = { open, updatedAt: new Date().toISOString() };
+  await db.collection(META_COLLECTION).doc(SUBMISSIONS_DOC).set(settings);
+  return settings;
+}
+
+/** Throws once an admin has closed photo submissions. */
+export async function assertPhotoSubmissionsOpen() {
+  if (!(await readPhotoSubmissionSettings()).open) {
+    throw new PhotoSubmissionsClosedError();
+  }
 }
 
 // —— Event day: check-in ——

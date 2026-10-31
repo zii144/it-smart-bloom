@@ -2,6 +2,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 import { POST } from "@/app/api/sessions/route";
 import {
   PhotoAlreadySubmittedError,
+  PhotoSubmissionsClosedError,
   RosterUnavailableError,
 } from "@/lib/roster-store";
 import { getSession } from "@/lib/sessions";
@@ -13,12 +14,14 @@ const {
   findRosterMatchMock,
   reserveMock,
   releaseMock,
+  assertOpenMock,
 } = vi.hoisted(() => ({
   afterMock: vi.fn(),
   generateImageMock: vi.fn(),
   findRosterMatchMock: vi.fn(),
   reserveMock: vi.fn(),
   releaseMock: vi.fn(),
+  assertOpenMock: vi.fn(),
 }));
 
 vi.mock("next/server", () => ({ after: afterMock }));
@@ -28,6 +31,7 @@ vi.mock("@/lib/roster-store", async (importOriginal) => ({
   findRosterMatch: findRosterMatchMock,
   reservePhotoSubmission: reserveMock,
   releasePhotoSubmission: releaseMock,
+  assertPhotoSubmissionsOpen: assertOpenMock,
 }));
 
 const GUEST = { name: "張小明", phone: "0912345678" };
@@ -68,6 +72,8 @@ beforeEach(() => {
   reserveMock.mockResolvedValue("2026-11-10T06:00:00.000Z");
   releaseMock.mockReset();
   releaseMock.mockResolvedValue(undefined);
+  assertOpenMock.mockReset();
+  assertOpenMock.mockResolvedValue(undefined);
 });
 
 describe("POST /api/sessions", () => {
@@ -143,6 +149,21 @@ describe("POST /api/sessions", () => {
 
     expect(response.status).toBe(403);
     expect((await response.json()).error).toContain("找不到");
+    expect(afterMock).not.toHaveBeenCalled();
+  });
+
+  it("refuses every guest once an admin closes submissions", async () => {
+    assertOpenMock.mockRejectedValue(new PhotoSubmissionsClosedError());
+
+    const response = await POST(createRequest());
+
+    expect(response.status).toBe(403);
+    expect(await response.json()).toMatchObject({
+      closed: true,
+      error: "提交個人照片，製作專屬小禮已截止收件。",
+    });
+    expect(findRosterMatchMock).not.toHaveBeenCalled();
+    expect(reserveMock).not.toHaveBeenCalled();
     expect(afterMock).not.toHaveBeenCalled();
   });
 

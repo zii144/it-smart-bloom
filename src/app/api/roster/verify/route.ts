@@ -1,7 +1,9 @@
 import { GuestRosterError, matchGuestOnRoster } from "@/lib/roster-guest";
 import {
+  assertPhotoSubmissionsOpen,
   isPhotoSubmitted,
   PhotoAlreadySubmittedError,
+  PhotoSubmissionsClosedError,
   RosterUnavailableError,
 } from "@/lib/roster-store";
 
@@ -15,6 +17,7 @@ export const runtime = "nodejs";
  */
 export async function POST(request: Request) {
   try {
+    await assertPhotoSubmissionsOpen();
     const body = (await request.json().catch(() => null)) as {
       name?: unknown;
       phone?: unknown;
@@ -34,6 +37,12 @@ export async function POST(request: Request) {
       return Response.json(
         { error: error.message },
         { status: error.status, headers: { "Cache-Control": "no-store" } },
+      );
+    }
+    if (error instanceof PhotoSubmissionsClosedError) {
+      return Response.json(
+        { error: error.message, closed: true },
+        { status: 403, headers: { "Cache-Control": "no-store" } },
       );
     }
     if (error instanceof PhotoAlreadySubmittedError) {

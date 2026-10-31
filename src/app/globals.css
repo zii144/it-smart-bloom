@@ -1081,6 +1081,35 @@ select:focus-visible {
   }
 }
 
+/* submissions closed by an admin: a quiet notice in the button's place */
+.primary-button.invitation-button.is-closed {
+  max-width: 100%;
+  min-height: max(48px, calc(var(--u) * 8.4));
+  padding: calc(var(--u) * 1.6) calc(var(--u) * 3.6);
+  border-color: rgba(29, 58, 48, 0.32);
+  color: var(--ink);
+  background: rgba(255, 250, 240, 0.86);
+  box-shadow: none;
+  cursor: default;
+  font-size: max(13px, calc(var(--t) * 1.9));
+  letter-spacing: 0.12em;
+  line-height: 1.6;
+  opacity: 1;
+  text-align: center;
+  text-shadow: none;
+  white-space: normal;
+}
+
+.primary-button.invitation-button.is-closed::after {
+  content: none;
+}
+
+.primary-button.invitation-button.is-closed:hover {
+  background: rgba(255, 250, 240, 0.86);
+  box-shadow: none;
+  transform: none;
+}
+
 .invitation-footnote {
   margin: calc(var(--u) * 1.8) 0 0;
   color: var(--ink-soft);
@@ -5090,6 +5119,19 @@ select:focus-visible {
 .admin-roster-actions button:disabled {
   opacity: 0.42;
   cursor: not-allowed;
+}
+
+/* —— Photo submissions switch (overview) —— */
+
+.admin-submissions {
+  display: grid;
+  max-width: 520px;
+  gap: 8px;
+  margin-bottom: 12px;
+}
+
+.admin-submissions .admin-banner {
+  margin: 0;
 }
 
 /* —— Check-in board —— */
