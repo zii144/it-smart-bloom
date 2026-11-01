@@ -2,7 +2,8 @@ import {
   PortraitTicketError,
   redeemPortraitTicket,
 } from "@/lib/portrait-token";
-import { readResultImage } from "@/lib/sessions";
+import { readPortraitPreview } from "@/lib/portrait-delivery";
+import { PREVIEW_MIME } from "@/lib/portrait-preview";
 
 export const runtime = "nodejs";
 
@@ -26,12 +27,13 @@ export async function GET(
   try {
     const { token } = await params;
     const sessionId = await redeemPortraitTicket(token);
-    const image = await readResultImage(sessionId);
-    return new Response(new Uint8Array(image.bytes), {
+    // An avatar needs no more than the preview, and it always fits a function response.
+    const bytes = await readPortraitPreview(sessionId);
+    return new Response(new Uint8Array(bytes), {
       headers: {
         ...headers,
-        "Content-Type": image.mime,
-        "Content-Length": String(image.bytes.byteLength),
+        "Content-Type": PREVIEW_MIME,
+        "Content-Length": String(bytes.byteLength),
       },
     });
   } catch (error) {

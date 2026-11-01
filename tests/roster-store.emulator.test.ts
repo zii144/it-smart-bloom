@@ -25,7 +25,10 @@ import {
   readCheckInSettings,
   readLastImport,
   readRosterGuest,
+  readRosterFailedPortraitSession,
+  readRosterPortraitSession,
   recordRosterPortrait,
+  recordRosterPortraitAdjusted,
   RosterConflictError,
   RosterNotFoundError,
   setCheckInOpen,
@@ -244,6 +247,46 @@ describe.skipIf(emulatorHost !== TEST_EMULATOR_HOST)("roster-store on the Firest
     // Undoing the arrival takes the link back too.
     await undoRosterCheckIn(entry.id);
     await expect(findPortraitByAccessToken(again.portrait.accessToken!)).resolves.toBeNull();
+  });
+
+  it("finds a failed portrait for staff to re-run, and nothing else", async () => {
+    const entry = await createRosterEntry(person("甲", "0911111111"));
+    await expect(readRosterFailedPortraitSession(entry.id)).resolves.toBeNull();
+    await recordRosterPortrait(entry.id, "sess-1", "failed", { isNewSession: true });
+    await expect(readRosterFailedPortraitSession(entry.id)).resolves.toBe("sess-1");
+    // The re-run finishes in the same session: the guest's portrait is complete.
+    await recordRosterPortrait(entry.id, "sess-1", "complete", { isNewSession: false });
+    await expect(readRosterFailedPortraitSession(entry.id)).resolves.toBeNull();
+    await expect(readRosterPortraitSession(entry.id)).resolves.toBe("sess-1");
+    await expect(readRosterFailedPortraitSession("missing")).rejects.toBeInstanceOf(
+      RosterNotFoundError,
+    );
+  });
+
+  it("tracks an admin adjustment for the current portrait only", async () => {
+    const entry = await createRosterEntry(person("甲", "0911111111"));
+    await expect(readRosterPortraitSession(entry.id)).resolves.toBeNull();
+
+    await recordRosterPortrait(entry.id, "sess-1", "complete", { isNewSession: true });
+    await expect(readRosterPortraitSession(entry.id)).resolves.toBe("sess-1");
+
+    await recordRosterPortraitAdjusted(entry.id, "sess-1", "2026-10-30T05:00:00.000Z");
+    const adjusted = (await listRosterEntries()).find((row) => row.id === entry.id);
+    expect(adjusted?.portraitAdjustedAt).toBe("2026-10-30T05:00:00.000Z");
+
+    // A late write for some other session is ignored.
+    await recordRosterPortraitAdjusted(entry.id, "sess-old", null);
+    expect(
+      (await listRosterEntries()).find((row) => row.id === entry.id)?.portraitAdjustedAt,
+    ).toBe("2026-10-30T05:00:00.000Z");
+
+    // A new booth session starts clean: the adjustment was for the old one.
+    await recordRosterPortrait(entry.id, "sess-2", "generating", { isNewSession: true });
+    expect(
+      (await listRosterEntries()).find((row) => row.id === entry.id)?.portraitAdjustedAt,
+    ).toBeNull();
+    await expect(readRosterPortraitSession(entry.id)).resolves.toBeNull();
+    await expect(readRosterPortraitSession("missing")).rejects.toBeInstanceOf(RosterNotFoundError);
   });
 
   it("refuses expired, malformed and superseded portrait links", async () => {

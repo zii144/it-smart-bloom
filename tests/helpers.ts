@@ -1,5 +1,6 @@
 import { readFile, writeFile } from "node:fs/promises";
 import path from "node:path";
+import sharp from "sharp";
 import type { ImageSession } from "@/lib/sessions";
 
 /**
@@ -23,6 +24,27 @@ export function webpBytes(size = 64) {
   bytes.write("RIFF", 0, "ascii");
   bytes.write("WEBP", 8, "ascii");
   return bytes;
+}
+
+/**
+ * A real, decodable image, for code paths that compress previews with sharp
+ * (the magic-number stubs above fail to decode there).
+ */
+export async function realImage(
+  format: "jpeg" | "png" | "webp" = "jpeg",
+  { width = 48, height = 48 }: { width?: number; height?: number } = {},
+) {
+  return sharp({
+    create: { width, height, channels: 3, background: "#d96e59" },
+  })
+    .toFormat(format)
+    .toBuffer();
+}
+
+/** Asserts a response body is one of our compressed JPEG previews. */
+export async function previewInfo(body: ArrayBuffer | Buffer) {
+  const { format, width, height } = await sharp(Buffer.from(body as ArrayBuffer)).metadata();
+  return { format, width, height };
 }
 
 export function imageFile(

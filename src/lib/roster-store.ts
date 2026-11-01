@@ -460,8 +460,58 @@ export async function recordRosterPortrait(
       portraitSessionId: sessionId,
       portraitStatus: status,
       portraitUpdatedAt: now,
+      // An adjustment belongs to the session it was made for.
+      ...(entry.portraitSessionId !== sessionId ? { portraitAdjustedAt: null } : {}),
       ...submission,
     });
+  });
+}
+
+/**
+ * The guest's finished portrait session, for an admin replacing the image.
+ * Only a complete one: that is what check-in hands over.
+ */
+export async function readRosterPortraitSession(id: string): Promise<string | null> {
+  const db = requireDb();
+  const doc = await rosterCollection(db).doc(id).get();
+  if (!doc.exists) throw new RosterNotFoundError();
+  const entry = doc.data() as RosterEntryData;
+  return entry.portraitStatus === "complete" && entry.portraitSessionId
+    ? entry.portraitSessionId
+    : null;
+}
+
+/**
+ * The guest's latest booth session when its render failed, for staff to run
+ * it again from the stored photo. Null when there is nothing failed to retry.
+ */
+export async function readRosterFailedPortraitSession(id: string): Promise<string | null> {
+  const db = requireDb();
+  const doc = await rosterCollection(db).doc(id).get();
+  if (!doc.exists) throw new RosterNotFoundError();
+  const entry = doc.data() as RosterEntryData;
+  return entry.portraitStatus === "failed" && entry.portraitSessionId
+    ? entry.portraitSessionId
+    : null;
+}
+
+/**
+ * Mirrors an admin adjustment onto the roster for the check-in panel. Skipped
+ * when the guest has since moved on to a newer session.
+ */
+export async function recordRosterPortraitAdjusted(
+  id: string,
+  sessionId: string,
+  adjustedAt: string | null,
+) {
+  const db = requireDb();
+  const ref = rosterCollection(db).doc(id);
+  await db.runTransaction(async (transaction) => {
+    const current = await transaction.get(ref);
+    if (!current.exists) return;
+    const entry = current.data() as RosterEntryData;
+    if (entry.portraitSessionId !== sessionId) return;
+    transaction.update(ref, { portraitAdjustedAt: adjustedAt });
   });
 }
 

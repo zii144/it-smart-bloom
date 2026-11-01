@@ -81,6 +81,8 @@ export type RosterEventState = {
    */
   portraitAccessToken?: string | null;
   portraitAccessExpiresAt?: string | null;
+  /** When an admin last uploaded a fine-tuned replacement; null once reverted. */
+  portraitAdjustedAt?: string | null;
   /**
    * Set when the guest's booth photo is accepted: one submission per guest.
    * `null` means "may submit" (never submitted, or an admin allowed another).

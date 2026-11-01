@@ -1,8 +1,37 @@
+import { randomBytes } from "node:crypto";
 import type { GuestIdentity } from "@/lib/guest-identity";
 import { identityStorageKey } from "@/lib/guest-identity";
-import { getBucket, getDb, isFirebaseConfigured } from "@/lib/firebase-admin";
+import {
+  getBucket,
+  getDb,
+  isFirebaseConfigured,
+  isFirebaseEmulator,
+} from "@/lib/firebase-admin";
+import {
+  isAdjustedMime,
+  MAX_ADJUSTED_BYTES,
+  type AdjustedMime,
+} from "@/lib/portrait-limits";
+import { compressPreview, PREVIEW_MIME, PreviewError } from "@/lib/portrait-preview";
 import { recordRosterPortrait } from "@/lib/roster-store";
+import { hasExpectedSignature } from "@/lib/image-signature";
 import type { ImageSession, SessionStatus } from "@/lib/sessions";
+
+/**
+ * An admin's fine-tuned replacement for the generated portrait. Each upload is
+ * a new object under `sessions/{id}/final/`; the generated `result` is never
+ * overwritten, so clearing this goes back to it.
+ */
+export type FinalResult = {
+  path: string;
+  mime: string;
+  revisionId: string;
+  uploadedAt: string;
+  /** Bytes of the original; decides between streaming and a signed URL. */
+  size: number;
+  /** The compressed copy guests are shown, made when the upload is accepted. */
+  previewPath: string | null;
+};
 
 export type ArchiveRecord = {
   sessionId: string;
@@ -15,6 +44,8 @@ export type ArchiveRecord = {
   error: string | null;
   inputMime: string;
   resultMime: string | null;
+  /** Absent on records from before previews were keyed by result. */
+  resultAt?: string | null;
   source: ImageSession["source"] | null;
   generationOptions: ImageSession["generationOptions"] | null;
   rosterEntryId: string | null;
@@ -25,6 +56,8 @@ export type ArchiveRecord = {
   avatarRequestedAt: string | null;
   avatarRequestStatus: "idle" | "success" | "failed" | null;
   avatarRequestError: string | null;
+  /** Absent or null: guests get the generated result. */
+  finalResult?: FinalResult | null;
   storage: {
     inputPath: string | null;
     resultPath: string | null;
@@ -117,6 +150,7 @@ export async function archiveSessionCreated(session: ImageSession, input: {
     error: session.error ?? null,
     inputMime: session.inputMime,
     resultMime: session.resultMime ?? null,
+    resultAt: session.resultAt ?? null,
     source: session.source ?? null,
     generationOptions: session.generationOptions ?? null,
     rosterEntryId: session.rosterEntryId ?? null,
@@ -193,6 +227,7 @@ export async function archiveSessionStatus(
       generationAttempts: session.generationAttempts ?? 0,
       error: session.error ?? null,
       resultMime: session.resultMime ?? result?.mime ?? null,
+      resultAt: session.resultAt ?? null,
       generationOptions: session.generationOptions ?? null,
       storage: {
         inputPath: existing?.storage.inputPath ?? null,
@@ -272,6 +307,263 @@ export async function claimSessionIdentity(
   return { identityKey: key, claimedAt };
 }
 
+export class FinalResultUnavailableError extends Error {
+  constructor(message = "尚未連線 Firebase，無法保存調整後的作品。") {
+    super(message);
+    this.name = "FinalResultUnavailableError";
+  }
+}
+
+/** The upload itself is the problem; the admin should pick another file. */
+export class FinalResultInputError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = "FinalResultInputError";
+  }
+}
+
+const REVISION_PATTERN = /^[A-Za-z0-9_-]{1,64}$/;
+const SIGNED_UPLOAD_TTL_MS = 15 * 60_000;
+const SIGNED_DOWNLOAD_TTL_MS = 5 * 60_000;
+
+function newRevisionId() {
+  return `${Date.now().toString(36)}-${randomBytes(6).toString("base64url")}`;
+}
+
+function finalObjectPath(sessionId: string, revisionId: string) {
+  return `sessions/${sessionId}/final/${revisionId}`;
+}
+
+/** Where a browser PUTs an original before the server has checked it. */
+function stagingObjectPath(sessionId: string, uploadId: string) {
+  return `sessions/${sessionId}/uploads/${uploadId}`;
+}
+
+export function previewObjectPath(sessionId: string, key: string) {
+  return `sessions/${sessionId}/preview/${key}.jpg`;
+}
+
+function requireFinalTarget(sessionId: string) {
+  const doc = sessionDoc(sessionId);
+  const bucket = getBucket();
+  if (!isFirebaseConfigured() || !doc || !bucket) {
+    throw new FinalResultUnavailableError();
+  }
+  return { doc, bucket };
+}
+
+/** Best effort: the preview is a cache, and a guest request rebuilds it. */
+export async function storePreview(sessionId: string, key: string, bytes: Buffer) {
+  return uploadBytes(previewObjectPath(sessionId, key), bytes, PREVIEW_MIME);
+}
+
+/**
+ * Checks the original (magic number, then a full decode while building the
+ * preview), writes it to a fresh `final/` object from these exact bytes, then
+ * points the session at it. Nothing reaches `final/` unchecked, and the
+ * pointer moves last, so guests never see a revision without its preview.
+ */
+async function acceptFinalResult(
+  sessionId: string,
+  image: { bytes: Buffer; mime: AdjustedMime },
+): Promise<FinalResult> {
+  const { doc } = requireFinalTarget(sessionId);
+  if (!hasExpectedSignature(image.bytes, image.mime)) {
+    throw new FinalResultInputError("上傳的檔案不是有效的圖片。");
+  }
+  const preview = await compressPreview(image.bytes);
+
+  const revisionId = newRevisionId();
+  const path = await uploadBytes(
+    finalObjectPath(sessionId, revisionId),
+    image.bytes,
+    image.mime,
+  );
+  if (!path) {
+    throw new FinalResultUnavailableError("無法保存調整後的作品，請稍後再試。");
+  }
+  const previewPath = await storePreview(sessionId, `final-${revisionId}`, preview);
+
+  const uploadedAt = new Date().toISOString();
+  const finalResult: FinalResult = {
+    path,
+    mime: image.mime,
+    revisionId,
+    uploadedAt,
+    size: image.bytes.length,
+    previewPath,
+  };
+  // Only the pointer changes; earlier uploads stay in Storage for the record.
+  await doc.set({ finalResult, updatedAt: uploadedAt }, { merge: true });
+  return finalResult;
+}
+
+/**
+ * Small files (and local emulators, which cannot sign URLs) come through the
+ * function; the route has already checked type, size and magic number.
+ */
+export async function storeFinalResult(
+  sessionId: string,
+  image: { bytes: Buffer; mime: string },
+): Promise<FinalResult> {
+  requireFinalTarget(sessionId);
+  if (!isAdjustedMime(image.mime)) {
+    throw new FinalResultInputError("請使用 JPEG、PNG 或 WebP 格式的圖片。");
+  }
+  return acceptFinalResult(sessionId, { bytes: image.bytes, mime: image.mime });
+}
+
+export type FinalUploadTarget = {
+  uploadUrl: string;
+  objectPath: string;
+  /** Send exactly these with the PUT: both are part of the signature. */
+  headers: Record<string, string>;
+  expiresAt: string;
+};
+
+/**
+ * A signed PUT straight to Storage, so the original never passes through a
+ * Vercel function. It lands in a staging folder that guests are never served
+ * from, capped at MAX_ADJUSTED_BYTES by a signed length-range header. Null
+ * when URLs cannot be signed (local emulators); the caller then falls back to
+ * `storeFinalResult`. The bucket needs the CORS rule from the README.
+ */
+export async function createFinalUploadTarget(
+  sessionId: string,
+  contentType: AdjustedMime,
+): Promise<FinalUploadTarget | null> {
+  const { bucket } = requireFinalTarget(sessionId);
+  if (isFirebaseEmulator()) return null;
+
+  const objectPath = stagingObjectPath(sessionId, newRevisionId());
+  const expires = Date.now() + SIGNED_UPLOAD_TTL_MS;
+  const lengthRange = `0,${MAX_ADJUSTED_BYTES}`;
+  try {
+    const [uploadUrl] = await bucket.file(objectPath).getSignedUrl({
+      version: "v4",
+      action: "write",
+      expires,
+      contentType,
+      extensionHeaders: { "x-goog-content-length-range": lengthRange },
+    });
+    return {
+      uploadUrl,
+      objectPath,
+      headers: {
+        "Content-Type": contentType,
+        "x-goog-content-length-range": lengthRange,
+      },
+      expiresAt: new Date(expires).toISOString(),
+    };
+  } catch (error) {
+    console.error(`Could not sign an upload URL for ${objectPath}:`, error);
+    return null;
+  }
+}
+
+/**
+ * Accepts a file the browser PUT through `createFinalUploadTarget`. Only a
+ * path in this session's staging folder is accepted. The bytes are checked in
+ * memory and those same bytes become the `final/` object, so a later PUT to
+ * the still-valid URL can never change what guests get. The staging copy is
+ * deleted once accepted or proven bad; a transient failure keeps it for a retry.
+ */
+export async function finalizeUploadedFinalResult(
+  sessionId: string,
+  objectPath: unknown,
+): Promise<FinalResult> {
+  const { bucket } = requireFinalTarget(sessionId);
+  const prefix = `sessions/${sessionId}/uploads/`;
+  const uploadId =
+    typeof objectPath === "string" && objectPath.startsWith(prefix)
+      ? objectPath.slice(prefix.length)
+      : "";
+  if (!REVISION_PATTERN.test(uploadId)) {
+    throw new FinalResultInputError("上傳的檔案位置不正確，請重新上傳。");
+  }
+  const file = bucket.file(stagingObjectPath(sessionId, uploadId));
+  const discard = () => file.delete({ ignoreNotFound: true }).catch(() => undefined);
+
+  let metadata;
+  let bytes: Buffer;
+  try {
+    [metadata] = await file.getMetadata();
+  } catch (error) {
+    if (storageErrorCode(error) === 404) {
+      throw new FinalResultInputError("找不到剛上傳的檔案，請重新上傳。");
+    }
+    throw new FinalResultUnavailableError("暫時無法讀取剛上傳的檔案，請再試一次。");
+  }
+
+  const size = Number(metadata.size);
+  const mime = metadata.contentType;
+  if (!isAdjustedMime(mime)) {
+    await discard();
+    throw new FinalResultInputError("請使用 JPEG、PNG 或 WebP 格式的圖片。");
+  }
+  if (!Number.isFinite(size) || size <= 0 || size > MAX_ADJUSTED_BYTES) {
+    await discard();
+    throw new FinalResultInputError(`圖片必須小於 ${MAX_ADJUSTED_BYTES / 1024 / 1024} MB。`);
+  }
+
+  try {
+    [bytes] = await file.download();
+  } catch {
+    throw new FinalResultUnavailableError("暫時無法讀取剛上傳的檔案，請再試一次。");
+  }
+
+  try {
+    const finalResult = await acceptFinalResult(sessionId, { bytes: Buffer.from(bytes), mime });
+    await discard();
+    return finalResult;
+  } catch (error) {
+    if (error instanceof FinalResultInputError || error instanceof PreviewError) {
+      await discard();
+    }
+    throw error;
+  }
+}
+
+function storageErrorCode(error: unknown) {
+  return typeof error === "object" && error !== null && "code" in error
+    ? error.code
+    : null;
+}
+
+/**
+ * A short-lived download link straight from Storage, for originals too big
+ * to stream through a function. Null when URLs cannot be signed.
+ */
+export async function signedDownloadUrl(
+  objectPath: string,
+  options: { filename: string; mime: string },
+): Promise<string | null> {
+  const bucket = getBucket();
+  if (!bucket || isFirebaseEmulator()) return null;
+  try {
+    const [url] = await bucket.file(objectPath).getSignedUrl({
+      version: "v4",
+      action: "read",
+      expires: Date.now() + SIGNED_DOWNLOAD_TTL_MS,
+      responseDisposition: `attachment; filename="${options.filename}"`,
+      responseType: options.mime,
+    });
+    return url;
+  } catch (error) {
+    console.error(`Could not sign a download URL for ${objectPath}:`, error);
+    return null;
+  }
+}
+
+/** Goes back to the generated portrait. Uploaded files are kept. */
+export async function clearFinalResult(sessionId: string) {
+  const { doc } = requireFinalTarget(sessionId);
+  await doc.set(
+    { finalResult: null, updatedAt: new Date().toISOString() },
+    { merge: true },
+  );
+}
+
 export async function markAvatarRequest(
   sessionId: string,
   outcome: { ok: true } | { ok: false; error: string },
@@ -294,7 +586,11 @@ export async function readArchiveRecord(sessionId: string) {
   return (snap?.data() as ArchiveRecord | undefined) ?? null;
 }
 
-export async function readArchiveImage(objectPath: string): Promise<{
+/** `missingOk`: a cache lookup, where an absent object is expected and not logged. */
+export async function readArchiveImage(
+  objectPath: string,
+  { missingOk = false }: { missingOk?: boolean } = {},
+): Promise<{
   bytes: Buffer;
   mime: string;
 } | null> {
@@ -311,7 +607,9 @@ export async function readArchiveImage(objectPath: string): Promise<{
         : "application/octet-stream";
     return { bytes: Buffer.from(bytes), mime };
   } catch (error) {
-    console.error(`Firebase Storage download failed for ${objectPath}:`, error);
+    if (!(missingOk && storageErrorCode(error) === 404)) {
+      console.error(`Firebase Storage download failed for ${objectPath}:`, error);
+    }
     return null;
   }
 }

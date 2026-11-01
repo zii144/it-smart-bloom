@@ -6,7 +6,7 @@ import {
   getSession,
   writeResultImage,
 } from "@/lib/sessions";
-import { imageFile, jpegBytes, routeContext } from "./helpers";
+import { imageFile, jpegBytes, realImage, routeContext } from "./helpers";
 
 const { requestAvatarMock } = vi.hoisted(() => ({
   requestAvatarMock: vi.fn(),
@@ -22,6 +22,9 @@ vi.mock("@/lib/portrait-archive", () => ({
     claimedAt: new Date().toISOString(),
   })),
   markAvatarRequest: vi.fn(async () => undefined),
+  // No archive copy: sessions and results come from the local files.
+  readArchiveRecord: vi.fn(async () => null),
+  readArchiveImage: vi.fn(async () => null),
 }));
 
 beforeEach(() => {
@@ -97,7 +100,7 @@ describe("POST /api/sessions/[id]/avatar", () => {
 
   it("forwards the portrait once identity is claimed", async () => {
     const session = await createSession(imageFile());
-    await writeResultImage(session.id, jpegBytes(), "image/jpeg");
+    await writeResultImage(session.id, await realImage("jpeg"), "image/jpeg");
     await postClaim(
       new Request("http://phone.local", {
         method: "POST",
@@ -118,6 +121,7 @@ describe("POST /api/sessions/[id]/avatar", () => {
         sessionId: session.id,
         identityKind: "mobile",
         identityValue: "0912345678",
+        imageMime: "image/jpeg",
       }),
     );
   });

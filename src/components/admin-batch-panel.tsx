@@ -390,7 +390,8 @@ export function AdminBatchPanel({
     for (const item of items) {
       if (item.status !== "done" || !item.resultUrl) continue;
       const anchor = document.createElement("a");
-      anchor.href = item.resultUrl;
+      // The bare URL is a compressed preview; downloads get the original.
+      anchor.href = `${item.resultUrl}&download=1`;
       anchor.download = downloadName(item);
       document.body.appendChild(anchor);
       anchor.click();

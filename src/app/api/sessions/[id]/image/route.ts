@@ -1,14 +1,19 @@
 import {
-  assertSessionNotExpired,
-  extensionForMime,
-  getSession,
-  readInputImage,
-  readResultImage,
-  SessionError,
-} from "@/lib/sessions";
+  originalDownloadResponse,
+  previewResponse,
+  readInputPreview,
+  readPortraitPreview,
+} from "@/lib/portrait-delivery";
+import { PreviewError } from "@/lib/portrait-preview";
+import { assertSessionNotExpired, getSession, SessionError } from "@/lib/sessions";
 
 export const runtime = "nodejs";
 
+/**
+ * `GET /api/sessions/:id/image?kind=input|result[&download=1]` for the
+ * 15-minute guest link. Shows compressed previews; only `kind=result&download=1`
+ * returns the full-quality original.
+ */
 export async function GET(
   request: Request,
   { params }: { params: Promise<{ id: string }> },
@@ -29,26 +34,17 @@ export async function GET(
     const session = await getSession(id);
     assertSessionNotExpired(session);
 
-    const image =
-      kind === "input" ? await readInputImage(id) : await readResultImage(id);
-    const extension = extensionForMime(image.mime);
-    const filename =
-      kind === "result"
-        ? `zhisheng-bloom-portrait.${extension}`
-        : `source-photo.${extension}`;
-
-    return new Response(new Uint8Array(image.bytes), {
-      headers: {
-        "Content-Type": image.mime,
-        "Content-Length": String(image.bytes.byteLength),
-        "Cache-Control": "private, no-store",
-        "Content-Disposition": `${asDownload ? "attachment" : "inline"}; filename="${filename}"`,
-        "X-Content-Type-Options": "nosniff",
-      },
-    });
+    if (kind === "input") {
+      return previewResponse(await readInputPreview(id), "source-photo.jpg");
+    }
+    if (asDownload) return await originalDownloadResponse(id);
+    return previewResponse(await readPortraitPreview(id));
   } catch (error) {
     if (error instanceof SessionError) {
       return Response.json({ error: error.message }, { status: error.status });
+    }
+    if (error instanceof PreviewError) {
+      return Response.json({ error: error.message }, { status: 500 });
     }
 
     console.error("Failed to serve image:", error);

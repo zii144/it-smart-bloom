@@ -159,8 +159,9 @@ entrance) with the same 姓名 + 手機 match as the booth. They get a joyful
 報到成功 card with their seat. Checking in again shows the original time.
 
 - **Portrait handover.** A valid check-in is what earns the portrait. If it
-  is finished, the card shows it with a 儲存作品 download, served by
-  `GET /api/check-in/portrait/[token]`. The token is random, stored on the
+  is finished, the card shows a compressed preview with a 下載原圖
+  (full-quality original) download, served by
+  `GET /api/check-in/portrait/[token]` (`?download=1` for the original). The token is random, stored on the
   roster entry, and valid for 7 days. It is replaced on each check-in and
   revoked when staff undo the check-in. This works long after the session's
   15-minute link has expired; the image comes from Firebase Storage. A
@@ -176,6 +177,60 @@ entrance) with the same 姓名 + 手機 match as the booth. They get a joyful
 - Arrival (`checkedInAt`, `checkInSource`), the latest portrait
   (`portraitStatus`) and the portrait token are stored on the guest's
   `roster` entry. Imports and admin edits never overwrite them.
+
+### Adjusted portraits (調整版作品)
+
+When a generated portrait needs fine-tuning before guests receive it, staff
+upload the corrected file from **報到管理** (上傳調整版). Guests who already
+checked in get the new image on their next load; their link does not change.
+還原原圖 goes back to the generated one.
+
+- The generated `sessions/{id}/result` is never overwritten. Each upload is a
+  new object at `sessions/{id}/final/{revision}`, with its compressed preview
+  at `sessions/{id}/preview/final-{revision}.jpg`. The `sessions/{id}` doc's
+  `finalResult` points at the current one (null = generated). The roster
+  entry's `portraitAdjustedAt` drives the 已調整 chip and resets when the
+  guest makes a new booth photo.
+- Originals up to 40 MB (JPEG, PNG or WebP), up to about 100 megapixels. The
+  browser PUTs the file straight to a staging object,
+  `sessions/{id}/uploads/{upload}`, through a 15-minute signed URL whose
+  signature also caps the size. The server then checks those bytes (type,
+  magic number, a full decode), writes the same bytes to `final/`, builds the
+  preview and only then switches the pointer, so nothing guests receive was
+  ever unchecked. The staging copy is deleted once accepted or rejected; a
+  transient Storage or Firestore failure keeps it so the admin can retry.
+
+### Re-running failed portraits (重新生成)
+
+If a render failed (for example the OpenAI account ran out of credits), staff
+can run it again from **報到管理**, either per guest (重新生成) or for every
+failed guest at once (重新生成失敗的 N 位, one at a time, stopping at the first
+credit or ceiling error). It uses the photo the guest already submitted, in
+the same session, via `POST /api/admin30910/roster/[id]/regenerate`. The
+guest's 15-minute expiry does not apply and staff get up to 5 tries instead of
+the guest's 2. Only failed portraits qualify, so a finished one is never billed
+twice. Success marks the guest's portrait complete, so check-in hands it over.
+
+### Image delivery and the Vercel 4.5 MB limit
+
+Vercel rejects function request and response bodies over 4.5 MB, so no
+function streams an image that could be bigger:
+
+- Every image shown in a page is a JPEG preview (≤ 1280 px, made with `sharp`,
+  cached in Storage under `sessions/{id}/preview/` and in `/tmp`). It is keyed
+  by the adjustment's revision, or by when the generated result was written,
+  so a retry never shows the previous render. The Road Teacher avatar
+  transfer also sends the preview.
+- A download of the original (`?download=1` on guest routes, `?original=1` on
+  the admin image route) is streamed when it is 4 MB or less, and otherwise
+  redirects to a 5-minute signed Storage URL.
+- Signed URLs need the service account (`FIREBASE_SERVICE_ACCOUNT`). Local
+  emulators cannot sign, so there uploads go through the API and originals
+  are streamed (no body cap off Vercel).
+- **One-time bucket setup:** the browser upload needs CORS on the bucket for
+  the site's origin. With `cors.json` as
+  `[{"origin":["https://<public Bloom host>"],"method":["PUT"],"responseHeader":["Content-Type","x-goog-content-length-range"],"maxAgeSeconds":3600}]`, run
+  `gcloud storage buckets update gs://<bucket> --cors-file=cors.json`.
 
 ### Data reset (資料重置)
 

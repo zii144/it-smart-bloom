@@ -1,126 +1,62 @@
+import { adminRouteGuard } from "@/lib/admin-route";
 import {
-  ADMIN_COOKIE_NAME,
-  resolveAdminAuth,
-} from "@/lib/admin-auth";
-import {
-  readArchiveImage,
-  readArchiveRecord,
-} from "@/lib/portrait-archive";
-import {
-  extensionForMime,
-  readInputImage,
-  readResultImage,
-  SessionError,
-} from "@/lib/sessions";
+  originalDownloadResponse,
+  previewResponse,
+  readInputPreview,
+  readPortraitPreview,
+} from "@/lib/portrait-delivery";
+import { PreviewError } from "@/lib/portrait-preview";
+import { SessionError } from "@/lib/sessions";
 
 export const runtime = "nodejs";
+/** A cold preview may decode a large adjusted original. */
+export const maxDuration = 60;
 
-function readCookie(request: Request, name: string) {
-  const header = request.headers.get("cookie") || "";
-  for (const part of header.split(";")) {
-    const [rawKey, ...rest] = part.trim().split("=");
-    if (rawKey === name) {
-      return decodeURIComponent(rest.join("="));
-    }
-  }
-  return null;
-}
-
-function imageResponse(
-  bytes: Buffer,
-  mime: string,
-  kind: "input" | "result",
-) {
-  const extension = extensionForMime(mime);
-  const filename =
-    kind === "result"
-      ? `zhisheng-bloom-portrait.${extension}`
-      : `source-photo.${extension}`;
-  return new Response(new Uint8Array(bytes), {
-    headers: {
-      "Content-Type": mime,
-      "Content-Length": String(bytes.byteLength),
-      "Cache-Control": "private, no-store",
-      "Content-Disposition": `inline; filename="${filename}"`,
-      "X-Content-Type-Options": "nosniff",
-    },
-  });
-}
-
+/**
+ * `GET /api/admin30910/sessions/:id/image?kind=input|result|generated[&original=1]`.
+ * `result` is what guests receive; `generated` ignores an admin adjustment.
+ * Compressed previews by default; `original=1` is the full-quality file
+ * (streamed, or a signed Storage redirect when too big for a function).
+ * Works on expired sessions: sessions and images fall back to the archive.
+ */
 export async function GET(
   request: Request,
   { params }: { params: Promise<{ id: string }> },
 ) {
-  const auth = resolveAdminAuth({
-    cookieToken: readCookie(request, ADMIN_COOKIE_NAME),
-    authorization: request.headers.get("authorization"),
-  });
-
-  if (!auth.ok) {
-    if (auth.reason === "disabled") {
-      return Response.json({ error: "Not found" }, { status: 404 });
-    }
-    return Response.json(
-      { error: "Unauthorized" },
-      {
-        status: 401,
-        headers: {
-          "WWW-Authenticate": 'Basic realm="Bloom Admin", charset="UTF-8"',
-          "Cache-Control": "no-store",
-        },
-      },
-    );
-  }
+  const denied = adminRouteGuard(request);
+  if (denied) return denied;
 
   try {
     const { id } = await params;
-    const kind = new URL(request.url).searchParams.get("kind");
+    const url = new URL(request.url);
+    const kind = url.searchParams.get("kind");
+    const original = url.searchParams.get("original") === "1";
 
-    if (kind !== "input" && kind !== "result") {
+    if (kind !== "input" && kind !== "result" && kind !== "generated") {
       return Response.json(
-        { error: "圖片類型必須是 input 或 result。" },
+        { error: "圖片類型必須是 input、result 或 generated。" },
         { status: 400 },
       );
     }
 
-    try {
-      const local =
-        kind === "input" ? await readInputImage(id) : await readResultImage(id);
-      return imageResponse(local.bytes, local.mime, kind);
-    } catch (error) {
-      if (!(error instanceof SessionError)) {
-        throw error;
-      }
+    if (kind === "input") {
+      return previewResponse(await readInputPreview(id), "source-photo.jpg");
     }
-
-    const record = await readArchiveRecord(id);
-    const objectPath =
-      kind === "input"
-        ? record?.storage.inputPath
-        : record?.storage.resultPath;
-
-    if (!record || !objectPath) {
-      return Response.json(
-        { error: "目前無法取得圖片。" },
-        { status: 404 },
-      );
-    }
-
-    const archived = await readArchiveImage(objectPath);
-    if (!archived) {
-      return Response.json(
-        { error: "目前無法取得圖片。" },
-        { status: 404 },
-      );
-    }
-
-    const mime =
-      kind === "input"
-        ? record.inputMime || archived.mime
-        : record.resultMime || archived.mime;
-
-    return imageResponse(archived.bytes, mime, kind);
+    const variant = kind === "result" ? "deliverable" : "generated";
+    // Like the old archive fallback: a result stays viewable after a failed retry.
+    const options = { allowIncomplete: true };
+    if (original) return await originalDownloadResponse(id, variant, options);
+    return previewResponse(await readPortraitPreview(id, variant, options));
   } catch (error) {
+    if (error instanceof SessionError) {
+      return Response.json(
+        { error: error.status === 503 ? error.message : "目前無法取得圖片。" },
+        { status: error.status === 503 ? 503 : 404 },
+      );
+    }
+    if (error instanceof PreviewError) {
+      return Response.json({ error: error.message }, { status: 500 });
+    }
     console.error("Failed to serve admin archive image:", error);
     return Response.json({ error: "無法載入圖片。" }, { status: 500 });
   }

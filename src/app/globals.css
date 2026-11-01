@@ -1399,6 +1399,16 @@ select:focus-visible {
   text-indent: 0.3em;
 }
 
+.check-in-portrait figcaption small {
+  display: block;
+  margin-top: 2px;
+  font-size: 11px;
+  font-weight: 400;
+  letter-spacing: 0;
+  opacity: 0.7;
+  text-indent: 0;
+}
+
 .check-in-portrait-note {
   display: grid;
   justify-items: center;
@@ -4953,6 +4963,7 @@ select:focus-visible {
 }
 
 .admin-roster-toolbar .secondary-button,
+.admin-roster-toolbar .primary-button,
 .admin-roster-form-actions .primary-button,
 .admin-roster-form-actions .secondary-button {
   width: auto;
@@ -4960,6 +4971,13 @@ select:focus-visible {
   min-height: 0;
   padding: 7px 14px;
   font-size: 12px;
+}
+
+.admin-regenerate-progress {
+  color: #7a4b00;
+  font-size: 12px;
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
 }
 
 .admin-roster-list {
@@ -5049,7 +5067,15 @@ select:focus-visible {
   cursor: pointer;
 }
 
-.admin-roster-actions button:hover {
+.admin-roster-actions a {
+  color: var(--coral-dark);
+  font-size: 11px;
+  font-weight: 700;
+  text-decoration: none;
+}
+
+.admin-roster-actions button:hover,
+.admin-roster-actions a:hover {
   text-decoration: underline;
 }
 
@@ -5264,6 +5290,11 @@ select:focus-visible {
 .admin-check-in-chip.is-submitted {
   color: var(--ink);
   background: rgba(122, 157, 180, 0.2);
+}
+
+.admin-check-in-chip.is-adjusted {
+  color: #5b3f8a;
+  background: rgba(143, 115, 196, 0.16);
 }
 
 .admin-check-in-chip.admin-portrait-complete {

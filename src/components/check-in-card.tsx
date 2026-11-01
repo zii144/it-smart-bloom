@@ -75,7 +75,10 @@ function PortraitHandover({
           height={640}
           unoptimized
         />
-        <figcaption>您的路老師似顏繪</figcaption>
+        <figcaption>
+          您的路老師似顏繪
+          <small>此為壓縮預覽，下載可取得原圖</small>
+        </figcaption>
       </figure>
     );
   }
@@ -154,7 +157,7 @@ function DoneCard({
           href={`${portraitUrl}?download=1`}
           download
         >
-          儲存作品
+          下載原圖
           <span className="button-arrow">
             <ArrowIcon />
           </span>

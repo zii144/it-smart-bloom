@@ -1,4 +1,4 @@
-import { rm } from "node:fs/promises";
+import { readdir, rm } from "node:fs/promises";
 import path from "node:path";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import {
@@ -9,9 +9,11 @@ import {
   purgeExpiredSessions,
   readInputImage,
   readResultImage,
+  readSessionCache,
   SESSION_TTL_MS,
   updateSession,
   writeResultImage,
+  writeSessionCache,
 } from "@/lib/sessions";
 import {
   expiredAt,
@@ -473,5 +475,23 @@ describe("getSession with a copy on another server instance (QA 10/27)", () => {
     });
 
     await expect(sessions.getSession(created.id)).resolves.toMatchObject({ status: "ready" });
+  });
+});
+
+describe("session cache files", () => {
+  it("round-trips a preview and leaves no temp files behind", async () => {
+    const session = await createSession(imageFile());
+    await writeSessionCache(session.id, "preview-x.jpg", Buffer.from("preview"));
+    expect((await readSessionCache(session.id, "preview-x.jpg"))?.toString()).toBe("preview");
+    const files = await readdir(path.join(process.env.BLOOM_DATA_DIR!, session.id));
+    expect(files.filter((name) => name.endsWith(".tmp"))).toEqual([]);
+  });
+
+  it("refuses dot names and skips files too big for /tmp", async () => {
+    const session = await createSession(imageFile());
+    await writeSessionCache(session.id, "..", Buffer.from("x"));
+    await writeSessionCache(session.id, "big.bin", Buffer.alloc(8 * 1024 * 1024 + 1));
+    expect(await readSessionCache(session.id, "..")).toBeNull();
+    expect(await readSessionCache(session.id, "big.bin")).toBeNull();
   });
 });

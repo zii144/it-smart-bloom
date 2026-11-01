@@ -7,7 +7,13 @@ import {
 } from "@/app/api/portrait/[token]/route";
 import { POST as report } from "@/app/api/sessions/[id]/avatar-result/route";
 import { createSession, updateSession, writeResultImage } from "@/lib/sessions";
-import { imageFile, jpegBytes, patchMetadata, routeContext } from "./helpers";
+import {
+  imageFile,
+  patchMetadata,
+  previewInfo,
+  realImage,
+  routeContext,
+} from "./helpers";
 
 const mocks = vi.hoisted(() => ({
   mint: vi.fn(),
@@ -51,7 +57,7 @@ beforeEach(() => {
 });
 async function finished() {
   const session = await createSession(imageFile());
-  await writeResultImage(session.id, jpegBytes(), "image/jpeg");
+  await writeResultImage(session.id, await realImage("jpeg"), "image/jpeg");
   return session;
 }
 
@@ -112,7 +118,8 @@ describe("portrait capability routes", () => {
     expect(response.status).toBe(200);
     expect(response.headers.get("content-type")).toBe("image/jpeg");
     expect(response.headers.get("referrer-policy")).toBe("no-referrer");
-    expect(Buffer.from(await response.arrayBuffer())).toEqual(jpegBytes());
+    // The compressed preview: always small enough for a function response.
+    expect((await previewInfo(await response.arrayBuffer())).format).toBe("jpeg");
   });
   it("does not consume a ticket for a link-checker HEAD request", () => {
     expect(inspectLink().status).toBe(405);
