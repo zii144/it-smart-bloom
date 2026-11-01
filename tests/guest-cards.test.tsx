@@ -206,7 +206,7 @@ describe("CheckInCard", () => {
     expect((await findByAltText("您的路老師似顏繪")).getAttribute("src")).toBe(
       "/api/check-in/portrait/tok",
     );
-    const save = getByText("儲存作品").closest("a")!;
+    const save = getByText("下載原圖").closest("a")!;
     expect(save.getAttribute("href")).toBe(
       "/api/check-in/portrait/tok?download=1",
     );
@@ -238,7 +238,7 @@ describe("CheckInCard", () => {
     fillCheckIn(container);
     await findByAltText("您的路老師似顏繪");
     expect(queryByRole("dialog")).toBeNull();
-    expect(getByRole("link", { name: /儲存作品/ })).toBeTruthy();
+    expect(getByRole("link", { name: /下載原圖/ })).toBeTruthy();
     const action = getByRole("button", { name: "一鍵替換成路老師系統大頭貼" });
     action.focus();
     fireEvent.click(action);
@@ -310,7 +310,7 @@ describe("CheckInCard", () => {
     ).toBeTruthy();
     expect(container.querySelector('a[href="/"]')).toBeNull();
     expect(container.textContent).not.toContain("體驗路老師似顏繪");
-    expect(container.textContent).not.toContain("儲存作品");
+    expect(container.textContent).not.toContain("下載原圖");
   });
 
   it("validates before calling the server", () => {

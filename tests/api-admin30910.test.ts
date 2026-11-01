@@ -4,7 +4,7 @@ import { GET as getArchivePage } from "@/app/api/admin30910/archive/route";
 import { GET as getAdminImage } from "@/app/api/admin30910/sessions/[id]/image/route";
 import { createAdminToken } from "@/lib/admin-auth";
 import { createSession, writeResultImage } from "@/lib/sessions";
-import { imageFile, jpegBytes, routeContext } from "./helpers";
+import { imageFile, jpegBytes, previewInfo, realImage, routeContext } from "./helpers";
 
 beforeEach(() => {
   delete process.env.ADMIN_DASHBOARD_SECRET;
@@ -121,7 +121,7 @@ describe("GET /api/admin30910/sessions/[id]/image", () => {
 
   it("serves a local input image when authorized with cookie", async () => {
     process.env.ADMIN_DASHBOARD_SECRET = "s3cret";
-    const bytes = jpegBytes(128);
+    const bytes = await realImage("jpeg");
     const session = await createSession(imageFile(bytes));
     const token = createAdminToken();
 
@@ -135,26 +135,37 @@ describe("GET /api/admin30910/sessions/[id]/image", () => {
 
     expect(response.status).toBe(200);
     expect(response.headers.get("Content-Type")).toBe("image/jpeg");
-    expect(Buffer.from(await response.arrayBuffer())).toEqual(bytes);
+    expect((await previewInfo(await response.arrayBuffer())).format).toBe("jpeg");
   });
 
-  it("serves a local result image when the session is complete", async () => {
+  it("serves a result preview, and the original on request", async () => {
     process.env.ADMIN_DASHBOARD_SECRET = "s3cret";
     const session = await createSession(imageFile());
-    const result = jpegBytes(96);
-    await writeResultImage(session.id, result, "image/jpeg");
+    const result = await realImage("png", { width: 2000, height: 1600 });
+    await writeResultImage(session.id, result, "image/png");
     const token = createAdminToken();
+    const get = (query: string) =>
+      getAdminImage(
+        new Request(
+          `http://booth.local/api/admin30910/sessions/${session.id}/image?${query}`,
+          { headers: { cookie: `bloom_admin=${token}` } },
+        ),
+        routeContext(session.id),
+      );
 
-    const response = await getAdminImage(
-      new Request(
-        `http://booth.local/api/admin30910/sessions/${session.id}/image?kind=result`,
-        { headers: { cookie: `bloom_admin=${token}` } },
-      ),
-      routeContext(session.id),
-    );
+    const preview = await get("kind=result");
+    expect(preview.status).toBe(200);
+    expect(preview.headers.get("Content-Type")).toBe("image/jpeg");
+    expect(await previewInfo(await preview.arrayBuffer())).toEqual({
+      format: "jpeg",
+      width: 1280,
+      height: 1024,
+    });
 
-    expect(response.status).toBe(200);
-    expect(Buffer.from(await response.arrayBuffer())).toEqual(result);
+    const original = await get("kind=generated&original=1");
+    expect(original.headers.get("Content-Type")).toBe("image/png");
+    expect(original.headers.get("Content-Disposition")).toMatch(/^attachment/);
+    expect(Buffer.from(await original.arrayBuffer())).toEqual(result);
   });
 
   it("returns 400 for an invalid kind", async () => {

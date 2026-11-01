@@ -13,7 +13,8 @@ import {
   imageFile,
   jpegBytes,
   patchMetadata,
-  pngBytes,
+  previewInfo,
+  realImage,
   routeContext,
 } from "./helpers";
 
@@ -273,8 +274,8 @@ describe("POST /api/sessions/[id]/generate", () => {
 });
 
 describe("GET /api/sessions/[id]/image", () => {
-  it("serves the source photo", async () => {
-    const bytes = jpegBytes(128);
+  it("serves the source photo as a preview", async () => {
+    const bytes = await realImage("jpeg");
     const session = await createSession(imageFile(bytes));
 
     const response = await getImage(
@@ -286,25 +287,36 @@ describe("GET /api/sessions/[id]/image", () => {
     expect(response.headers.get("Content-Type")).toBe("image/jpeg");
     expect(response.headers.get("Cache-Control")).toBe("private, no-store");
     expect(response.headers.get("X-Content-Type-Options")).toBe("nosniff");
-    expect(Buffer.from(await response.arrayBuffer())).toEqual(bytes);
+    expect((await previewInfo(await response.arrayBuffer())).format).toBe("jpeg");
   });
 
-  it("serves the finished portrait", async () => {
+  it("shows a compressed preview and downloads the original", async () => {
     const session = await createSession(imageFile());
-    const result = pngBytes(200);
+    const result = await realImage("png", { width: 1600, height: 1600 });
     await writeResultImage(session.id, result, "image/png");
 
-    const response = await getImage(
-      imageRequest("result"),
+    const preview = await getImage(imageRequest("result"), routeContext(session.id));
+    expect(preview.status).toBe(200);
+    expect(preview.headers.get("Content-Type")).toBe("image/jpeg");
+    expect(preview.headers.get("Content-Disposition")).toMatch(/^inline/);
+    expect(await previewInfo(await preview.arrayBuffer())).toEqual({
+      format: "jpeg",
+      width: 1280,
+      height: 1280,
+    });
+
+    const original = await getImage(
+      new Request(
+        `http://phone.local/api/sessions/${session.id}/image?kind=result&download=1`,
+      ),
       routeContext(session.id),
     );
-
-    expect(response.status).toBe(200);
-    expect(response.headers.get("Content-Type")).toBe("image/png");
-    expect(response.headers.get("Content-Length")).toBe(
-      String(result.byteLength),
+    expect(original.headers.get("Content-Type")).toBe("image/png");
+    expect(original.headers.get("Content-Length")).toBe(String(result.byteLength));
+    expect(original.headers.get("Content-Disposition")).toMatch(
+      /^attachment; filename="zhisheng-bloom-portrait\.png"/,
     );
-    expect(Buffer.from(await response.arrayBuffer())).toEqual(result);
+    expect(Buffer.from(await original.arrayBuffer())).toEqual(result);
   });
 
   it("409s when the portrait is still rendering", async () => {

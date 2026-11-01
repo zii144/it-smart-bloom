@@ -14,6 +14,7 @@ import {
   assertSessionNotExpired,
   getSession,
   isGenerationLeaseActive,
+  MAX_BATCH_GENERATIONS,
   maxGenerationsFor,
   readInputImage,
   SessionError,
@@ -169,9 +170,16 @@ async function runOpenAiGeneration(
   });
 }
 
-function assertGenerationBudget(session: ImageSession) {
+/**
+ * `asAdmin`: staff re-running a guest's failed render from the stored photo,
+ * long after the guest's 15-minute link expired. Skips the expiry and uses the
+ * admin batch cap instead of the guest's two tries.
+ */
+export type GenerationOptions = { asAdmin?: boolean };
+
+function assertGenerationBudget(session: ImageSession, asAdmin: boolean) {
   const attempts = session.generationAttempts ?? 0;
-  const limit = maxGenerationsFor(session);
+  const limit = asAdmin ? MAX_BATCH_GENERATIONS : maxGenerationsFor(session);
   if (attempts >= limit) {
     throw new SessionError(
       `此創作空間已達生成次數上限（${limit} 次）。`,
@@ -184,9 +192,10 @@ async function performGeneration(
   id: string,
   overrides?: ImageGenerationOverrides | null,
   force = false,
+  { asAdmin = false }: GenerationOptions = {},
 ) {
   const session = await getSession(id);
-  assertSessionNotExpired(session);
+  if (!asAdmin) assertSessionNotExpired(session);
 
   if (session.status === "complete" && !force) {
     return;
@@ -210,7 +219,7 @@ async function performGeneration(
   const reuseStaleAttempt =
     session.status === "generating" && !isGenerationLeaseActive(session);
   if (!reuseStaleAttempt) {
-    assertGenerationBudget(session);
+    assertGenerationBudget(session, asAdmin);
   }
 
   // Same reason: a session refused by the daily ceiling stays ready, so the
@@ -244,6 +253,7 @@ export function generateImage(
   id: string,
   overrides?: ImageGenerationOverrides | null,
   force = false,
+  options?: GenerationOptions,
 ) {
   // Even a forced retry joins a render that is already running. Starting a
   // second OpenAI call would bill twice and let whichever response lands last
@@ -254,7 +264,7 @@ export function generateImage(
     return existing;
   }
 
-  const generation = performGeneration(id, overrides, force).finally(() => {
+  const generation = performGeneration(id, overrides, force, options).finally(() => {
     if (activeGenerations.get(id) === generation) {
       activeGenerations.delete(id);
     }

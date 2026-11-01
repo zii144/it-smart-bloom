@@ -202,6 +202,42 @@ describe("generateImage — failures", () => {
   });
 });
 
+describe("generateImage — admin re-run of a failed render", () => {
+  it("renders an expired guest session from its stored photo", async () => {
+    editMock.mockRejectedValueOnce(new Error("429 You have no credits remaining."));
+    const session = await createSession(imageFile());
+    await expect(generateImage(session.id)).rejects.toThrow("no credits");
+    await patchMetadata(session.id, {
+      expiresAt: new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString(),
+    });
+
+    await generateImage(session.id, null, false, { asAdmin: true });
+
+    const finished = await getSession(session.id);
+    expect(finished.status).toBe("complete");
+    expect(finished.generationAttempts).toBe(2);
+    expect((await readResultImage(session.id)).bytes.toString()).toBe(
+      "generated-portrait-bytes",
+    );
+  });
+
+  it("allows staff more tries than the guest, up to the batch cap", async () => {
+    editMock.mockRejectedValue(new Error("429 You have no credits remaining."));
+    const session = await createSession(imageFile());
+    await patchMetadata(session.id, { generationAttempts: 2, status: "failed" });
+
+    for (let attempt = 3; attempt <= 5; attempt += 1) {
+      await expect(
+        generateImage(session.id, null, false, { asAdmin: true }),
+      ).rejects.toThrow("no credits");
+    }
+    await expect(
+      generateImage(session.id, null, false, { asAdmin: true }),
+    ).rejects.toMatchObject({ status: 429 });
+    expect(editMock).toHaveBeenCalledTimes(3);
+  });
+});
+
 describe("generateImage — fake render", () => {
   it("writes the canned fixture portrait and never calls OpenAI", async () => {
     process.env.NEXT_PUBLIC_IMAGE_TUNING = "true";

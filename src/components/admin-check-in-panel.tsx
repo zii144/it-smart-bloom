@@ -1,8 +1,13 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { buildCheckInCsv, portraitLabel } from "@/lib/check-in-csv";
 import { formatTaipeiTime } from "@/lib/event-info";
+import {
+  ADJUSTED_MIME_TYPES,
+  isAdjustedMime,
+  MAX_ADJUSTED_BYTES,
+} from "@/lib/portrait-limits";
 import { hasSubmittedPhoto, type RosterEntry } from "@/lib/roster";
 
 type CheckInSettings = { open: boolean; updatedAt: string | null };
@@ -10,6 +15,66 @@ type Filter = "all" | "arrived" | "waiting";
 
 /** Polling is only for the live arrival board; each read costs one roster scan. */
 const REFRESH_MS = 10_000;
+type UploadTarget =
+  | {
+      mode: "signed";
+      uploadUrl: string;
+      objectPath: string;
+      /** Signed into the URL: the PUT must send exactly these. */
+      headers: Record<string, string>;
+    }
+  | { mode: "direct"; maxBytes: number };
+
+const MAX_ADJUSTED_MB = MAX_ADJUSTED_BYTES / 1024 / 1024;
+
+async function postJson(url: string, body: unknown) {
+  const response = await fetch(url, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(body),
+    credentials: "same-origin",
+  });
+  if (!response.ok) throw new Error(await readError(response));
+  return response;
+}
+
+/**
+ * Vercel rejects function bodies over 4.5 MB, so the original goes straight
+ * to Storage through a signed URL and the server then checks it. Only where
+ * URLs cannot be signed (local emulators) does the file pass through the API.
+ */
+async function sendAdjustedPortrait(entryId: string, file: File) {
+  const base = `/api/admin30910/roster/${entryId}/portrait`;
+  const target = (await (
+    await postJson(`${base}/upload-url`, { mime: file.type, size: file.size })
+  ).json()) as UploadTarget;
+
+  if (target.mode === "signed") {
+    let put: Response;
+    try {
+      put = await fetch(target.uploadUrl, {
+        method: "PUT",
+        headers: target.headers,
+        body: file,
+      });
+    } catch {
+      throw new Error("無法上傳到儲存空間，請確認網路，或 Storage 的 CORS 設定。");
+    }
+    if (!put.ok) throw new Error(`上傳到儲存空間失敗（${put.status}），請再試一次。`);
+    await postJson(base, { objectPath: target.objectPath });
+    return;
+  }
+
+  if (file.size > target.maxBytes) {
+    throw new Error(
+      `此環境只能上傳 ${Math.floor(target.maxBytes / 1024 / 1024)} MB 以下的圖片。`,
+    );
+  }
+  const body = new FormData();
+  body.append("image", file);
+  const response = await fetch(base, { method: "POST", body, credentials: "same-origin" });
+  if (!response.ok) throw new Error(await readError(response));
+}
 
 type RosterPayload = { entries: RosterEntry[]; checkIn: CheckInSettings };
 
@@ -61,25 +126,34 @@ export function AdminCheckInPanel({ active }: { active: boolean }) {
   const [settings, setSettings] = useState<CheckInSettings | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  /** Kept apart from `error` so the 10-second refresh never wipes an action's error. */
+  const [loadError, setLoadError] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
   const [filter, setFilter] = useState<Filter>("all");
   const [query, setQuery] = useState("");
   const [busyId, setBusyId] = useState<string | null>(null);
   const [confirmUndoId, setConfirmUndoId] = useState<string | null>(null);
   const [confirmResubmitId, setConfirmResubmitId] = useState<string | null>(null);
+  const [confirmRevertId, setConfirmRevertId] = useState<string | null>(null);
+  const [confirmRegenerateId, setConfirmRegenerateId] = useState<string | null>(null);
+  const [confirmRegenerateAll, setConfirmRegenerateAll] = useState(false);
+  /** "3/13" while the bulk run is going; blocks a second run. */
+  const [regenerateProgress, setRegenerateProgress] = useState<string | null>(null);
+  const uploadInputRef = useRef<HTMLInputElement>(null);
+  const uploadTargetRef = useRef<RosterEntry | null>(null);
   const [toggling, setToggling] = useState(false);
   const [refreshedAt, setRefreshedAt] = useState<string | null>(null);
 
   const applyPayload = useCallback((payload: RosterPayload) => {
     setEntries(payload.entries);
     setSettings(payload.checkIn);
-    setError(null);
+    setLoadError(null);
     setLoading(false);
     setRefreshedAt(new Date().toISOString());
   }, []);
 
   const showLoadError = useCallback((caught: unknown) => {
-    setError(caught instanceof Error ? caught.message : "無法讀取報到資料。");
+    setLoadError(caught instanceof Error ? caught.message : "無法讀取報到資料。");
     setLoading(false);
   }, []);
 
@@ -120,6 +194,9 @@ export function AdminCheckInPanel({ active }: { active: boolean }) {
 
   const arrived = entries.filter((entry) => entry.checkedInAt);
   const portraits = entries.filter((entry) => entry.portraitStatus === "complete");
+  const failed = entries.filter(
+    (entry) => entry.portraitStatus === "failed" && entry.portraitSessionId,
+  );
   const rate = entries.length ? Math.round((arrived.length / entries.length) * 100) : 0;
 
   const visible = useMemo(() => {
@@ -175,6 +252,116 @@ export function AdminCheckInPanel({ active }: { active: boolean }) {
       await reload();
     } catch (caught) {
       setError(caught instanceof Error ? caught.message : "無法開放重新上傳。");
+    } finally {
+      setBusyId(null);
+    }
+  }
+
+  function chooseAdjustedImage(entry: RosterEntry) {
+    uploadTargetRef.current = entry;
+    uploadInputRef.current?.click();
+  }
+
+  /** Replaces what this guest receives; already checked-in guests see it on reload. */
+  async function uploadAdjusted(file: File) {
+    const entry = uploadTargetRef.current;
+    uploadTargetRef.current = null;
+    if (!entry) return;
+    if (!isAdjustedMime(file.type)) {
+      setError("請使用 JPEG、PNG 或 WebP 格式的圖片。");
+      return;
+    }
+    if (file.size > MAX_ADJUSTED_BYTES) {
+      setError(`圖片必須小於 ${MAX_ADJUSTED_MB} MB。`);
+      return;
+    }
+    setBusyId(entry.id);
+    setError(null);
+    setNotice(`正在上傳 ${entry.name} 的調整版…`);
+    try {
+      await sendAdjustedPortrait(entry.id, file);
+      setNotice(`已更新 ${entry.name} 的似顏繪，來賓重新整理即可看到。`);
+      await reload();
+    } catch (caught) {
+      setNotice(null);
+      setError(caught instanceof Error ? caught.message : "無法上傳調整後的作品。");
+    } finally {
+      setBusyId(null);
+    }
+  }
+
+  /** One OpenAI render from the photo the guest already submitted; throws the API's message. */
+  async function requestRegeneration(entry: RosterEntry) {
+    const response = await fetch(`/api/admin30910/roster/${entry.id}/regenerate`, {
+      method: "POST",
+      credentials: "same-origin",
+    });
+    if (!response.ok) throw new Error(await readError(response));
+  }
+
+  async function regenerate(entry: RosterEntry) {
+    setBusyId(entry.id);
+    setError(null);
+    setConfirmRegenerateId(null);
+    setNotice(`正在為 ${entry.name} 重新生成，約需 30–90 秒…`);
+    try {
+      await requestRegeneration(entry);
+      setNotice(`${entry.name} 的似顏繪已生成完成，報到時即可領取。`);
+    } catch (caught) {
+      setNotice(null);
+      setError(
+        `${entry.name}：${caught instanceof Error ? caught.message : "重新生成失敗。"}`,
+      );
+    } finally {
+      setBusyId(null);
+      await reload();
+    }
+  }
+
+  /**
+   * One guest at a time: parallel renders would only hit OpenAI's rate limit,
+   * and stopping at the first account problem saves the rest of the list.
+   */
+  async function regenerateAllFailed() {
+    const queue = [...failed];
+    setConfirmRegenerateAll(false);
+    setError(null);
+    let done = 0;
+    const problems: string[] = [];
+    for (const [index, entry] of queue.entries()) {
+      setRegenerateProgress(`${index + 1}/${queue.length}`);
+      setBusyId(entry.id);
+      setNotice(`正在重新生成 ${entry.name}（${index + 1}/${queue.length}）…`);
+      try {
+        await requestRegeneration(entry);
+        done += 1;
+      } catch (caught) {
+        const message = caught instanceof Error ? caught.message : "重新生成失敗。";
+        problems.push(`${entry.name}：${message}`);
+        if (/額度|上限/.test(message)) break;
+      }
+    }
+    setBusyId(null);
+    setRegenerateProgress(null);
+    setNotice(`已完成 ${done}/${queue.length} 位。`);
+    if (problems.length) setError(problems.join("；"));
+    await reload();
+  }
+
+  async function revertAdjusted(entry: RosterEntry) {
+    setBusyId(entry.id);
+    setError(null);
+    try {
+      const response = await fetch(`/api/admin30910/roster/${entry.id}/portrait`, {
+        method: "DELETE",
+        credentials: "same-origin",
+      });
+      if (!response.ok) throw new Error(await readError(response));
+      setNotice(`已將 ${entry.name} 的似顏繪還原為原始生成圖。`);
+      setConfirmRevertId(null);
+      await reload();
+    } catch (caught) {
+      setError(caught instanceof Error ? caught.message : "無法還原作品。");
     } finally {
       setBusyId(null);
     }
@@ -252,8 +439,22 @@ export function AdminCheckInPanel({ active }: { active: boolean }) {
         </div>
       </div>
 
-      {error && <p className="admin-banner">{error}</p>}
-      {notice && !error && <p className="admin-batch-hint admin-roster-notice">{notice}</p>}
+      <input
+        ref={uploadInputRef}
+        type="file"
+        accept={ADJUSTED_MIME_TYPES.join(",")}
+        hidden
+        aria-label="選擇調整後的似顏繪"
+        onChange={(event) => {
+          const file = event.target.files?.[0];
+          event.target.value = "";
+          if (file) void uploadAdjusted(file);
+          else uploadTargetRef.current = null;
+        }}
+      />
+
+      {(error ?? loadError) && <p className="admin-banner">{error ?? loadError}</p>}
+      {notice && !error && !loadError && <p className="admin-batch-hint admin-roster-notice">{notice}</p>}
 
       <div className="admin-roster-toolbar">
         <div className="admin-segmented" role="group" aria-label="報到篩選">
@@ -290,6 +491,39 @@ export function AdminCheckInPanel({ active }: { active: boolean }) {
         >
           匯出 CSV
         </button>
+        {(failed.length > 0 || regenerateProgress) &&
+          (regenerateProgress ? (
+            <span className="admin-regenerate-progress" role="status">
+              重新生成中 {regenerateProgress}
+            </span>
+          ) : confirmRegenerateAll ? (
+            <>
+              <button
+                type="button"
+                className="primary-button"
+                onClick={() => void regenerateAllFailed()}
+              >
+                確定生成 {failed.length} 位（使用 OpenAI 額度）
+              </button>
+              <button
+                type="button"
+                className="secondary-button"
+                onClick={() => setConfirmRegenerateAll(false)}
+              >
+                取消
+              </button>
+            </>
+          ) : (
+            <button
+              type="button"
+              className="secondary-button"
+              disabled={Boolean(busyId)}
+              title="用來賓已上傳的照片重新生成，逐位處理"
+              onClick={() => setConfirmRegenerateAll(true)}
+            >
+              重新生成失敗的 {failed.length} 位
+            </button>
+          ))}
       </div>
 
       {loading ? (
@@ -321,12 +555,93 @@ export function AdminCheckInPanel({ active }: { active: boolean }) {
               >
                 似顏繪：{portraitLabel(entry)}
               </span>
+              {entry.portraitStatus === "complete" && entry.portraitAdjustedAt && (
+                <span className="admin-check-in-chip is-adjusted">
+                  已調整 {formatTaipeiTime(entry.portraitAdjustedAt)}
+                </span>
+              )}
               <span
                 className={`admin-check-in-chip${hasSubmittedPhoto(entry) ? " is-submitted" : ""}`}
               >
                 {hasSubmittedPhoto(entry) ? "已上傳照片" : "可上傳照片"}
               </span>
               <div className="admin-roster-actions">
+                {entry.portraitStatus === "complete" && entry.portraitSessionId && (
+                  <>
+                    <a
+                      href={`/api/admin30910/sessions/${entry.portraitSessionId}/image?kind=result&v=${encodeURIComponent(entry.portraitAdjustedAt ?? "generated")}`}
+                      target="_blank"
+                      rel="noreferrer"
+                      title="來賓目前會收到的作品（壓縮預覽）"
+                    >
+                      查看作品
+                    </a>
+                    <a
+                      href={`/api/admin30910/sessions/${entry.portraitSessionId}/image?kind=result&original=1`}
+                      title="下載來賓會收到的原尺寸檔案"
+                    >
+                      下載原圖
+                    </a>
+                    <button
+                      type="button"
+                      disabled={busyId === entry.id}
+                      title="上傳修圖後的版本，取代來賓收到的作品"
+                      onClick={() => chooseAdjustedImage(entry)}
+                    >
+                      {entry.portraitAdjustedAt ? "重新上傳調整版" : "上傳調整版"}
+                    </button>
+                    {entry.portraitAdjustedAt &&
+                      (confirmRevertId === entry.id ? (
+                        <>
+                          <button
+                            type="button"
+                            className="is-danger"
+                            disabled={busyId === entry.id}
+                            onClick={() => void revertAdjusted(entry)}
+                          >
+                            確定還原
+                          </button>
+                          <button type="button" onClick={() => setConfirmRevertId(null)}>
+                            不用
+                          </button>
+                        </>
+                      ) : (
+                        <button
+                          type="button"
+                          title="改回原始生成的作品"
+                          onClick={() => setConfirmRevertId(entry.id)}
+                        >
+                          還原原圖
+                        </button>
+                      ))}
+                  </>
+                )}
+                {entry.portraitStatus === "failed" &&
+                  entry.portraitSessionId &&
+                  (confirmRegenerateId === entry.id ? (
+                    <>
+                      <button
+                        type="button"
+                        className="is-danger"
+                        disabled={busyId === entry.id || Boolean(regenerateProgress)}
+                        onClick={() => void regenerate(entry)}
+                      >
+                        確定生成
+                      </button>
+                      <button type="button" onClick={() => setConfirmRegenerateId(null)}>
+                        不用
+                      </button>
+                    </>
+                  ) : (
+                    <button
+                      type="button"
+                      disabled={busyId === entry.id || Boolean(regenerateProgress)}
+                      title="用來賓已上傳的照片重新生成（會使用 OpenAI 額度）"
+                      onClick={() => setConfirmRegenerateId(entry.id)}
+                    >
+                      {busyId === entry.id ? "生成中…" : "重新生成"}
+                    </button>
+                  ))}
                 {hasSubmittedPhoto(entry) &&
                   (confirmResubmitId === entry.id ? (
                     <>

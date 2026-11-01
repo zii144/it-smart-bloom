@@ -57,6 +57,9 @@ async function seedEvent() {
   await createRosterEntry(parseRosterInput({ name: "乙", mobile: "0922222222", seat: "A2" }));
   await recordRosterPortrait(arrived.id, "sess-1", "complete", { isNewSession: true });
   await setCheckInOpen(true);
+  await getDb()!.collection("roster").doc(arrived.id).update({
+    portraitAdjustedAt: "2026-11-10T05:00:00.000Z",
+  });
   const { portrait } = await checkInRosterEntry(arrived.id, "self");
   await db.collection("rosterMeta").doc("lastImport").set({ importedAt: "x", sheet: "名單" });
 
@@ -137,7 +140,12 @@ describe.skipIf(emulatorHost !== TEST_EMULATOR_HOST)("admin data reset", () => {
 
     const roster = await listRosterEntries();
     expect(roster).toHaveLength(2);
-    expect(roster.every((entry) => !entry.portraitStatus && !entry.portraitSessionId)).toBe(true);
+    expect(
+      roster.every(
+        (entry) =>
+          !entry.portraitStatus && !entry.portraitSessionId && !entry.portraitAdjustedAt,
+      ),
+    ).toBe(true);
     // Their portraits are gone, so everyone may submit a photo again.
     expect(roster.every((entry) => entry.photoSubmittedAt === null)).toBe(true);
     expect(roster.find((entry) => entry.name === "甲")?.checkedInAt).toBeTruthy();

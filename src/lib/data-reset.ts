@@ -189,6 +189,7 @@ export async function resetData(categories: ResetCategory[]): Promise<ResetLog> 
         portraitSessionId: null,
         portraitStatus: null,
         portraitUpdatedAt: null,
+        portraitAdjustedAt: null,
         portraitAccessToken: null,
         portraitAccessExpiresAt: null,
         // Their portraits are gone, so everyone may submit a photo again.

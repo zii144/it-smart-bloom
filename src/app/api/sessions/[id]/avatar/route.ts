@@ -1,11 +1,12 @@
 import { markAvatarRequest } from "@/lib/portrait-archive";
+import { readPortraitPreview } from "@/lib/portrait-delivery";
+import { PREVIEW_MIME } from "@/lib/portrait-preview";
 import { isLegacyIdentityClaimEnabled } from "@/lib/road-teacher-flags";
 import { requestRoadTeacherAvatar } from "@/lib/road-teacher-avatar";
 import {
   assertSessionNotExpired,
   getSession,
   publicSession,
-  readResultImage,
   SessionError,
 } from "@/lib/sessions";
 
@@ -42,15 +43,16 @@ export async function POST(
       );
     }
 
-    const result = await readResultImage(id);
+    // An adjusted original can be tens of MB; an avatar needs only the preview.
+    const preview = await readPortraitPreview(id);
 
     try {
       await requestRoadTeacherAvatar({
         sessionId: id,
         identityKind: session.identity.kind,
         identityValue: session.identity.value,
-        imageBytes: result.bytes,
-        imageMime: result.mime,
+        imageBytes: preview,
+        imageMime: PREVIEW_MIME,
       });
       await markAvatarRequest(id, { ok: true });
     } catch (error) {

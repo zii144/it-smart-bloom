@@ -1,12 +1,24 @@
 /**
  * Admin overview reads of the `sessions` archive against the Firestore
- * emulator: whole-collection counts and cursor paging past the first batch.
+ * emulator: whole-collection counts and cursor paging past the first batch,
+ * plus the admin's adjusted-portrait pointer (Storage emulator).
  * Runs only under `npm run test:emulator`.
  */
 import { beforeEach, describe, expect, it } from "vitest";
-import { getDb } from "@/lib/firebase-admin";
+import { getBucket, getDb } from "@/lib/firebase-admin";
 import { firebasePublicConfig } from "@/lib/firebase-public-config";
-import { countArchiveSessions, listArchiveSessions } from "@/lib/portrait-archive";
+import {
+  archiveSessionStatus,
+  clearFinalResult,
+  countArchiveSessions,
+  listArchiveSessions,
+  readArchiveImage,
+  finalizeUploadedFinalResult,
+  FinalResultInputError,
+  readArchiveRecord,
+  storeFinalResult,
+} from "@/lib/portrait-archive";
+import { previewInfo, realImage } from "./helpers";
 
 const TEST_EMULATOR_HOST = "127.0.0.1:8181";
 const emulatorHost = process.env.FIRESTORE_EMULATOR_HOST;
@@ -65,5 +77,92 @@ describe.skipIf(emulatorHost !== TEST_EMULATOR_HOST)("portrait archive overview"
     expect(older.sessions.map((row) => row.sessionId)).toEqual(
       Array.from({ length: 10 }, (_, index) => `sess-${String(9 - index).padStart(3, "0")}`),
     );
+  });
+
+  it("stores each adjusted upload separately and clears only the pointer", async () => {
+    await seedSessions(1);
+    const firstBytes = await realImage("png", { width: 2400, height: 1800 });
+    const first = await storeFinalResult("sess-000", { bytes: firstBytes, mime: "image/png" });
+    expect(first.path).toBe(`sessions/sess-000/final/${first.revisionId}`);
+    expect(first.size).toBe(firstBytes.length);
+    expect((await readArchiveRecord("sess-000"))?.finalResult).toEqual(first);
+    // The generated result is untouched.
+    expect((await readArchiveRecord("sess-000"))?.storage.resultPath).toBeNull();
+    // Its compressed preview is ready before guests can see it.
+    const preview = await readArchiveImage(first.previewPath!);
+    expect(await previewInfo(preview!.bytes)).toEqual({
+      format: "jpeg",
+      width: 1280,
+      height: 960,
+    });
+
+    const second = await storeFinalResult("sess-000", {
+      bytes: await realImage("webp"),
+      mime: "image/webp",
+    });
+    expect(second.path).not.toBe(first.path);
+    expect((await readArchiveImage(first.path))?.bytes.length).toBe(firstBytes.length);
+
+    await clearFinalResult("sess-000");
+    expect((await readArchiveRecord("sess-000"))?.finalResult).toBeNull();
+    expect(await readArchiveImage(second.path)).not.toBeNull();
+  });
+
+  it("re-uploads checked staging bytes to final/, and deletes a bad upload", async () => {
+    await seedSessions(1);
+    const bucket = getBucket()!;
+    const staged = "sessions/sess-000/uploads/upload-1";
+    const bytes = await realImage("jpeg", { width: 300, height: 200 });
+    await bucket.file(staged).save(bytes, { contentType: "image/jpeg" });
+
+    const accepted = await finalizeUploadedFinalResult("sess-000", staged);
+    expect(accepted).toMatchObject({ mime: "image/jpeg", size: bytes.length });
+    expect(accepted.path).toBe(`sessions/sess-000/final/${accepted.revisionId}`);
+    expect((await readArchiveImage(accepted.path))?.bytes).toEqual(bytes);
+    expect((await readArchiveRecord("sess-000"))?.finalResult?.path).toBe(accepted.path);
+    // The staging copy is gone, and a later PUT there cannot reach guests.
+    expect((await bucket.file(staged).exists())[0]).toBe(false);
+    await bucket.file(staged).save(Buffer.from("swapped"), { contentType: "image/jpeg" });
+    expect((await readArchiveImage(accepted.path))?.bytes).toEqual(bytes);
+
+    // Renamed junk is refused and removed; the current adjustment stays.
+    const junk = "sessions/sess-000/uploads/upload-2";
+    await bucket.file(junk).save(Buffer.from("definitely not a png"), { contentType: "image/png" });
+    await expect(finalizeUploadedFinalResult("sess-000", junk)).rejects.toBeInstanceOf(
+      FinalResultInputError,
+    );
+    expect((await bucket.file(junk).exists())[0]).toBe(false);
+    expect((await readArchiveRecord("sess-000"))?.finalResult?.path).toBe(accepted.path);
+
+    // Only this session's own staging folder is accepted.
+    for (const path of [
+      "sessions/other/uploads/upload-1",
+      accepted.path,
+      "sessions/sess-000/result",
+      "sessions/sess-000/uploads/../result",
+      42,
+    ]) {
+      await expect(finalizeUploadedFinalResult("sess-000", path)).rejects.toBeInstanceOf(
+        FinalResultInputError,
+      );
+    }
+    expect((await readArchiveImage(accepted.path))?.bytes).toEqual(bytes);
+    await expect(
+      finalizeUploadedFinalResult("sess-000", "sessions/sess-000/uploads/missing"),
+    ).rejects.toBeInstanceOf(FinalResultInputError);
+  });
+
+  it("archives when the result was written, which keys its preview", async () => {
+    await seedSessions(1);
+    await archiveSessionStatus({
+      id: "sess-000",
+      createdAt: "2026-10-29T05:00:00.000Z",
+      expiresAt: "2026-10-29T05:15:00.000Z",
+      status: "complete",
+      inputMime: "image/jpeg",
+      resultMime: "image/jpeg",
+      resultAt: "2026-10-29T05:03:00.000Z",
+    });
+    expect((await readArchiveRecord("sess-000"))?.resultAt).toBe("2026-10-29T05:03:00.000Z");
   });
 });

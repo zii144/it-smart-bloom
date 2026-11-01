@@ -9,6 +9,7 @@ import {
   writeFile,
 } from "node:fs/promises";
 import path from "node:path";
+import { hasExpectedSignature } from "@/lib/image-signature";
 import type { ImageGenerationOptions } from "@/lib/image-options";
 
 export const SESSION_TTL_MS = 15 * 60 * 1000;
@@ -41,6 +42,8 @@ export type ImageSession = {
   status: SessionStatus;
   inputMime: string;
   resultMime?: string;
+  /** When the current result was written; keys its preview, since a retry overwrites it. */
+  resultAt?: string;
   error?: string;
   source?: SessionSource;
   generationStartedAt?: string;
@@ -133,6 +136,7 @@ function sessionFromArchive(record: {
   error?: string | null;
   inputMime: string;
   resultMime?: string | null;
+  resultAt?: string | null;
   source?: SessionSource | null;
   generationOptions?: ImageSession["generationOptions"] | null;
   rosterEntryId?: string | null;
@@ -152,6 +156,7 @@ function sessionFromArchive(record: {
 
   if (record.updatedAt) session.updatedAt = record.updatedAt;
   if (record.resultMime) session.resultMime = record.resultMime;
+  if (record.resultAt) session.resultAt = record.resultAt;
   if (record.error) session.error = record.error;
   if (record.source) session.source = record.source;
   if (record.generationStartedAt) {
@@ -191,6 +196,7 @@ function sameProgress(left: ImageSession, right: ImageSession) {
     left.status === right.status &&
     (left.error ?? null) === (right.error ?? null) &&
     (left.resultMime ?? null) === (right.resultMime ?? null) &&
+    (left.resultAt ?? null) === (right.resultAt ?? null) &&
     (left.generationStartedAt ?? null) === (right.generationStartedAt ?? null) &&
     (left.generationAttempts ?? 0) === (right.generationAttempts ?? 0)
   );
@@ -236,30 +242,6 @@ async function cacheSessionLocally(session: ImageSession) {
       error,
     );
   }
-}
-
-function hasExpectedSignature(bytes: Buffer, mime: string) {
-  if (mime === "image/jpeg") {
-    return bytes[0] === 0xff && bytes[1] === 0xd8 && bytes[2] === 0xff;
-  }
-
-  if (mime === "image/png") {
-    return (
-      bytes[0] === 0x89 &&
-      bytes[1] === 0x50 &&
-      bytes[2] === 0x4e &&
-      bytes[3] === 0x47
-    );
-  }
-
-  if (mime === "image/webp") {
-    return (
-      bytes.subarray(0, 4).toString("ascii") === "RIFF" &&
-      bytes.subarray(8, 12).toString("ascii") === "WEBP"
-    );
-  }
-
-  return false;
 }
 
 export class SessionError extends Error {
@@ -314,18 +296,47 @@ export function extensionForMime(mime: string) {
   return "jpg";
 }
 
+/** No leading dot, so a name can never be `..` or a hidden file. */
+const CACHE_NAME_PATTERN = /^[A-Za-z0-9_-][A-Za-z0-9_.-]{0,95}$/;
+/**
+ * Vercel's /tmp is about 512 MB per instance and shared with booth uploads;
+ * big originals are re-read from Storage instead of filling it.
+ */
+const SESSION_CACHE_MAX_BYTES = 8 * 1024 * 1024;
+
+/** A per-instance cache file in the session's folder (previews); null on a miss. */
+export async function readSessionCache(id: string, name: string) {
+  if (!CACHE_NAME_PATTERN.test(name)) return null;
+  try {
+    return await readFile(path.join(sessionDirectory(id), name));
+  } catch {
+    return null;
+  }
+}
+
+/** Written to a temp file and renamed, so a concurrent reader never sees half a file. */
+export async function writeSessionCache(id: string, name: string, bytes: Buffer) {
+  if (!CACHE_NAME_PATTERN.test(name) || bytes.length > SESSION_CACHE_MAX_BYTES) return;
+  try {
+    const directory = sessionDirectory(id);
+    await mkdir(directory, { recursive: true });
+    const target = path.join(directory, name);
+    const temporary = `${target}.${randomBytes(6).toString("hex")}.tmp`;
+    await writeFile(temporary, bytes);
+    await rename(temporary, target);
+  } catch {
+    // A cache miss next time is fine.
+  }
+}
+
 /** Best-effort removal after a failed durable archive in production. */
 export async function deleteSession(id: string) {
   assertSessionId(id);
   await rm(sessionDirectory(id), { recursive: true, force: true });
 }
 
-export async function createSession(
-  file: File,
-  generationOptions?: ImageGenerationOptions,
-  source?: SessionSource,
-  link?: { rosterEntryId?: string },
-) {
+/** Type, size and magic-number checks shared by every image upload. */
+export async function readUploadedImage(file: File) {
   if (!SUPPORTED_IMAGE_TYPES.has(file.type)) {
     throw new SessionError("請使用 JPEG、PNG 或 WebP 格式的照片。", 415);
   }
@@ -338,6 +349,16 @@ export async function createSession(
   if (!hasExpectedSignature(bytes, file.type)) {
     throw new SessionError("上傳的檔案不是有效的圖片。", 400);
   }
+  return bytes;
+}
+
+export async function createSession(
+  file: File,
+  generationOptions?: ImageGenerationOptions,
+  source?: SessionSource,
+  link?: { rosterEntryId?: string },
+) {
+  const bytes = await readUploadedImage(file);
 
   const id = randomBytes(24).toString("base64url");
   const createdAt = new Date();
@@ -447,10 +468,12 @@ export async function writeResultImage(
   return updateSession(id, {
     status: "complete",
     resultMime: mime,
+    resultAt: new Date().toISOString(),
     error: undefined,
   });
 }
 
+/** The model's own output; admin adjustments are resolved in `portrait-delivery`. */
 export async function readResultImage(id: string) {
   const session = await getSession(id);
   if (session.status !== "complete" || !session.resultMime) {
