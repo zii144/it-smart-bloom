@@ -227,10 +227,15 @@ function streams an image that could be bigger:
 - Signed URLs need the service account (`FIREBASE_SERVICE_ACCOUNT`). Local
   emulators cannot sign, so there uploads go through the API and originals
   are streamed (no body cap off Vercel).
-- **One-time bucket setup:** the browser upload needs CORS on the bucket for
-  the site's origin. With `cors.json` as
-  `[{"origin":["https://<public Bloom host>"],"method":["PUT"],"responseHeader":["Content-Type","x-goog-content-length-range"],"maxAgeSeconds":3600}]`, run
-  `gcloud storage buckets update gs://<bucket> --cors-file=cors.json`.
+- **Bucket CORS:** the browser upload needs CORS on the bucket for the site's
+  origin. [`cors.json`](cors.json) allows only `PUT` from
+  `https://it-smart-bloom.vercel.app` with the two headers the signed URL
+  requires; preview deployments cannot upload. It is applied to the live
+  bucket. Firebase CLI cannot set CORS, so after changing the file (for
+  example a new domain) re-apply it with gcloud:
+  `gcloud storage buckets update gs://it-smart-bloom-tmp.firebasestorage.app --cors-file=cors.json`,
+  then check with
+  `gcloud storage buckets describe gs://it-smart-bloom-tmp.firebasestorage.app --format="json(cors_config)"`.
 
 ### Data reset (資料重置)
 
