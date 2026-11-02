@@ -1,8 +1,8 @@
 [
   {
     "origin": ["https://it-smart-bloom.vercel.app"],
-    "method": ["PUT"],
-    "responseHeader": ["Content-Type", "x-goog-content-length-range"],
+    "method": ["PUT", "GET"],
+    "responseHeader": ["Content-Type", "Content-Disposition", "x-goog-content-length-range"],
     "maxAgeSeconds": 3600
   }
 ]

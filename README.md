@@ -200,6 +200,33 @@ checked in get the new image on their next load; their link does not change.
   ever unchecked. The staging copy is deleted once accepted or rejected; a
   transient Storage or Firestore failure keeps it so the admin can retry.
 
+### Batch retouching (調整版批次作業)
+
+For retouching every portrait at once, **報到管理 → 調整版批次作業**:
+
+1. **下載全部原圖（zip）** zips every guest's generated original in the
+   browser (a function response could never carry them all), named
+   `{座位}_{姓名}_{來賓編號}.jpg`, with a `說明.txt`. Guests without a seat get
+   `無座位_…`. **下載目前版本** zips what guests get now, adjustments
+   included, for a second retouching round. Nothing is saved if no image
+   could be fetched.
+2. Retouch, keeping the file names. Export JPEG, PNG or WebP (no HEIC/PSD).
+3. Drop the whole folder on the section (or **選擇調整版檔案…**). A match
+   table appears before anything is sent. A file matches by the guest id in
+   its name; hand-named files match by seat (`L5.jpg`, `B-12 修.png`), then by
+   a name only one guest has (`王小明.jpg`). Files that cannot be placed, a
+   seat or name shared by two guests, a guest without a portrait, an
+   unsupported format, more than 40 MB, or two files for one guest are listed
+   and never uploaded. **只看有問題或失敗** filters the table down to them.
+4. **確定上傳** sends three at a time through the same signed-URL path as the
+   per-guest button. A network, Storage, expired-session or URL-signing
+   failure stops the run; **重試其餘** sends only what did not finish. The page
+   warns before closing mid-run.
+
+The header and the 似顏繪 card show 已調整 x/y, and the 未調整 filter lists who
+is left. Open check-in only once every portrait is adjusted: a guest who
+checks in earlier gets the generated version first.
+
 ### Re-running failed portraits (重新生成)
 
 If a render failed (for example the OpenAI account ran out of credits), staff
@@ -227,11 +254,11 @@ function streams an image that could be bigger:
 - Signed URLs need the service account (`FIREBASE_SERVICE_ACCOUNT`). Local
   emulators cannot sign, so there uploads go through the API and originals
   are streamed (no body cap off Vercel).
-- **Bucket CORS:** the browser upload needs CORS on the bucket for the site's
-  origin. [`cors.json`](cors.json) allows only `PUT` from
-  `https://it-smart-bloom.vercel.app` with the two headers the signed URL
-  requires; preview deployments cannot upload. It is applied to the live
-  bucket. Firebase CLI cannot set CORS, so after changing the file (for
+- **Bucket CORS:** [`cors.json`](cors.json) allows only
+  `https://it-smart-bloom.vercel.app`: `PUT` for the browser upload (with the
+  headers the signed URL requires) and `GET` so the batch zip can follow a
+  signed-URL redirect for an original over 4 MB. Preview deployments get
+  neither. Firebase CLI cannot set CORS, so after changing the file (for
   example a new domain) re-apply it with gcloud:
   `gcloud storage buckets update gs://it-smart-bloom-tmp.firebasestorage.app --cors-file=cors.json`,
   then check with
