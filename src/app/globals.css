@@ -5025,6 +5025,35 @@ select:focus-visible {
   font-size: 12px;
 }
 
+.admin-adjusted-batch.is-dragging {
+  border-style: dashed;
+  border-color: rgba(91, 63, 138, 0.6);
+  background: rgba(143, 115, 196, 0.14);
+}
+
+.admin-adjusted-drop-hint {
+  margin: -4px 0 0;
+  color: var(--ink-soft);
+  font-size: 11px;
+}
+
+.admin-adjusted-filter {
+  justify-self: start;
+  padding: 3px 10px;
+  border: 1px solid rgba(217, 110, 89, 0.4);
+  border-radius: 999px;
+  background: rgba(255, 253, 247, 0.9);
+  color: var(--coral-dark);
+  font-size: 11px;
+  font-weight: 700;
+  cursor: pointer;
+}
+
+.admin-adjusted-filter[aria-pressed="true"] {
+  background: var(--coral-dark);
+  color: var(--paper);
+}
+
 .admin-adjusted-plan {
   display: grid;
   gap: 8px;

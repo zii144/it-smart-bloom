@@ -44,27 +44,51 @@ export type UploadFile = { name: string; type: string; size: number };
 export type UploadPlanRow = {
   fileName: string;
   guest: PortraitGuest | null;
-  matchedBy: "id" | "seat" | null;
+  matchedBy: "id" | "seat" | "name" | null;
   /** Set when this file must not be uploaded. */
   problem: string | null;
   /** The guest already has an adjustment that this would replace. */
   replaces: boolean;
 };
 
+/** Candidate seat or name strings in a hand-made file name, most specific first. */
+function nameCandidates(base: string) {
+  const whole = base.normalize("NFKC").trim();
+  // Hyphens split last: `B-12 修` must try `B-12` before it could fall to `B`.
+  return [
+    ...new Set([
+      whole,
+      whole.split("_")[0],
+      whole.split(/[_\s]/)[0],
+      whole.split(/[_\-\s.]/)[0],
+    ]),
+  ].filter(Boolean);
+}
+
+function nameKey(name: string) {
+  return name.normalize("NFKC").replace(/[\s_]+/g, "");
+}
+
 /**
  * One row per file, in the order given. A file matches by the full guest id
- * anywhere in its name (what the download names it), or else by the seat
- * before the first `_`, `-`, space or dot (for hand-named files like `L5.jpg`).
+ * anywhere in its name (what the download names it). Otherwise, for
+ * hand-named files, by seat (`L5.jpg`, `B-12.jpg`, `L5_final.png`), then by
+ * a guest name that only one guest has (`王小明.jpg`). Never by guesswork:
+ * a seat or name shared by two guests is refused.
  */
 export function planAdjustedUploads(
   files: UploadFile[],
   guests: PortraitGuest[],
 ): UploadPlanRow[] {
   const bySeat = new Map<string, PortraitGuest[]>();
+  const byName = new Map<string, PortraitGuest[]>();
   for (const guest of guests) {
-    if (!guest.seat) continue;
-    const key = seatKey(guest.seat);
-    bySeat.set(key, [...(bySeat.get(key) ?? []), guest]);
+    if (guest.seat) {
+      const key = seatKey(guest.seat);
+      bySeat.set(key, [...(bySeat.get(key) ?? []), guest]);
+    }
+    const key = nameKey(guest.name);
+    if (key) byName.set(key, [...(byName.get(key) ?? []), guest]);
   }
 
   const rows = files.map((file): UploadPlanRow => {
@@ -82,20 +106,34 @@ export function planAdjustedUploads(
       row.guest = byId;
       row.matchedBy = "id";
     } else {
-      const token = seatKey(base.split(/[_\-\s.]/)[0] ?? "");
-      const seated = token ? (bySeat.get(token) ?? []) : [];
+      const candidates = nameCandidates(base);
+      const seated = candidates
+        .map((candidate) => bySeat.get(seatKey(candidate)) ?? [])
+        .find((found) => found.length > 0) ?? [];
+      const named = seated.length
+        ? []
+        : (candidates
+            .map((candidate) => byName.get(nameKey(candidate)) ?? [])
+            .find((found) => found.length > 0) ?? []);
       if (seated.length > 1) {
         row.problem = "這個座位有多位來賓，請保留下載時檔名裡的來賓編號。";
+        return row;
+      }
+      if (named.length > 1) {
+        row.problem = "有多位來賓同名，請保留下載時檔名裡的來賓編號。";
         return row;
       }
       if (seated.length === 1) {
         row.guest = seated[0];
         row.matchedBy = "seat";
+      } else if (named.length === 1) {
+        row.guest = named[0];
+        row.matchedBy = "name";
       }
     }
 
     if (!row.guest) {
-      row.problem = "對不到來賓：檔名請保留下載時的名稱，或以座位開頭（例如 L5_…）。";
+      row.problem = "對不到來賓：檔名請保留下載時的名稱，或用座位、姓名命名（例如 L5.jpg）。";
     } else if (!hasPortrait(row.guest)) {
       row.problem = "這位來賓沒有完成的作品，不能上傳調整版。";
     } else if (!isAdjustedMime(file.type)) {

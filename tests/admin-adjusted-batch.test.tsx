@@ -141,4 +141,102 @@ describe("AdminAdjustedBatch", () => {
     await findByText("完成 1/2 張，失敗 1 張。");
     expect(getByText("上傳的檔案不是有效的圖片。")).toBeTruthy();
   });
+
+  it("saves nothing when no original could be fetched", async () => {
+    vi.stubGlobal("fetch", vi.fn(async () => new Response("no", { status: 401 })));
+    const { getByText, findByText } = render(
+      <AdminAdjustedBatch entries={entries} onChanged={onChanged} />,
+    );
+    fireEvent.click(getByText("下載全部原圖（zip）"));
+    await findByText("沒有下載到任何原圖，請確認網路或重新登入後再試。");
+    expect(blobs).toHaveLength(0);
+  });
+
+  it("downloads the current version, adjustments included, for another round", async () => {
+    const fetchMock = vi.fn<(url: string) => Promise<Response>>(async () =>
+      new Response(new Uint8Array([9]), { headers: { "Content-Type": "image/png" } }),
+    );
+    vi.stubGlobal("fetch", fetchMock);
+    const adjusted = [{ ...wang, portraitAdjustedAt: "2026-11-02T03:00:00Z" }, lin, none];
+    const { getByText, findByText } = render(
+      <AdminAdjustedBatch entries={adjusted} onChanged={onChanged} />,
+    );
+    fireEvent.click(getByText("下載目前版本"));
+    await findByText("已下載 2 張目前版本。");
+    expect(fetchMock.mock.calls.every(([url]) => String(url).includes("kind=result&original=1"))).toBe(true);
+    const zip = unzipSync(new Uint8Array(await blobs[0].arrayBuffer()));
+    expect(Object.keys(zip)).toContain(`L5_王小明_${wang.id}.png`);
+  });
+
+  it("offers the current version only once something is adjusted", () => {
+    const { getByText } = render(<AdminAdjustedBatch entries={entries} onChanged={onChanged} />);
+    expect(getByText("下載目前版本").closest("button")!.disabled).toBe(true);
+  });
+
+  it("uploads up to three files at once", async () => {
+    const many = Array.from({ length: 7 }, (_, index) =>
+      entry(`guestNumber${index}AbCdEfGh`, `M${index}`, `來賓${index}`),
+    );
+    let inFlight = 0;
+    let peak = 0;
+    sendMock.mockImplementation(async () => {
+      inFlight += 1;
+      peak = Math.max(peak, inFlight);
+      await new Promise((resolve) => setTimeout(resolve, 5));
+      inFlight -= 1;
+    });
+    const { container, getByText, findByText } = render(
+      <AdminAdjustedBatch entries={many} onChanged={onChanged} />,
+    );
+    pick(container, many.map((guest) => file(`${guest.seat}.png`)));
+    fireEvent.click(getByText("確定上傳 7 張"));
+    await findByText("完成 7/7 張。");
+    expect(peak).toBe(3);
+    expect(sendMock).toHaveBeenCalledTimes(7);
+  });
+
+  it("stops when signing is unavailable instead of failing every large file", async () => {
+    sendMock.mockRejectedValue(new Error("此環境只能上傳 4 MB 以下的圖片。"));
+    const many = Array.from({ length: 6 }, (_, index) =>
+      entry(`bigGuest${index}AbCdEfGhIj`, `N${index}`, `大檔${index}`),
+    );
+    const { container, getByText, findByText } = render(
+      <AdminAdjustedBatch entries={many} onChanged={onChanged} />,
+    );
+    pick(container, many.map((guest) => file(`${guest.seat}.png`)));
+    fireEvent.click(getByText("確定上傳 6 張"));
+    await findByText(/已停止：此環境只能上傳/);
+    // Only the files already in flight when it stopped were tried.
+    expect(sendMock.mock.calls.length).toBeLessThanOrEqual(3);
+  });
+
+  it("filters the table down to the files that need attention", async () => {
+    sendMock.mockRejectedValueOnce(new Error("上傳的檔案不是有效的圖片。"));
+    const { container, getByText, findByText, queryByText } = render(
+      <AdminAdjustedBatch entries={entries} onChanged={onChanged} />,
+    );
+    pick(container, [file("L5.png"), file("E5.png"), file("random.png")]);
+    fireEvent.click(getByText("只看有問題或失敗（1）"));
+    expect(queryByText("L5.png")).toBeNull();
+    expect(getByText("random.png")).toBeTruthy();
+    fireEvent.click(getByText("顯示全部"));
+
+    fireEvent.click(getByText("確定上傳 2 張"));
+    await findByText("完成 1/2 張，失敗 1 張。");
+    // After a run with failures the table opens on just those rows.
+    expect(getByText("顯示全部")).toBeTruthy();
+    expect(queryByText("E5.png")).toBeNull();
+    expect(getByText("L5.png")).toBeTruthy();
+  });
+
+  it("accepts dropped files and ignores hidden files and the instructions", async () => {
+    const { container, findByText, getByText } = render(
+      <AdminAdjustedBatch entries={entries} onChanged={onChanged} />,
+    );
+    const section = container.querySelector("section")!;
+    const dropped = [file("L5.png"), file(".DS_Store", ""), file("說明.txt", "text/plain")];
+    fireEvent.drop(section, { dataTransfer: { items: [], files: dropped } });
+    await findByText(/共 1 個檔案/);
+    expect(getByText("L5.png")).toBeTruthy();
+  });
 });

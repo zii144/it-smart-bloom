@@ -63,6 +63,35 @@ describe("planAdjustedUploads", () => {
     }
   });
 
+  it("matches hyphenated or spaced seats as a whole", () => {
+    const b12 = guest("b12GuestAbCdEfGh0001", "B-12", "陳大文");
+    const b = guest("bGuestAbCdEfGh000002", "B", "不該配到");
+    for (const name of ["B-12.jpg", "b-12_final.png", "B-12 修.webp"]) {
+      const [row] = planAdjustedUploads([png(name)], [b12, b]);
+      expect(row).toMatchObject({ guest: b12, matchedBy: "seat", problem: null });
+    }
+  });
+
+  it("matches a file named after a guest only when the name is unique", () => {
+    const [row] = planAdjustedUploads([png("王小明.png")], guests);
+    expect(row).toMatchObject({ guest: wang, matchedBy: "name", problem: null });
+    expect(planAdjustedUploads([png("林 美麗_修好.png")], guests)[0]).toMatchObject({
+      guest: lin,
+      matchedBy: "name",
+    });
+
+    const namesake = guest("namesakeAbCdEfGh0003", "Q1", "王小明");
+    const [twin] = planAdjustedUploads([png("王小明.png")], [wang, namesake]);
+    expect(twin.guest).toBeNull();
+    expect(twin.problem).toContain("同名");
+  });
+
+  it("prefers the seat over a name", () => {
+    const seatLike = guest("seatLikeAbCdEfGh0004", "Q2", "L5");
+    const [row] = planAdjustedUploads([png("L5.png")], [wang, seatLike]);
+    expect(row).toMatchObject({ guest: wang, matchedBy: "seat" });
+  });
+
   it("refuses files it cannot place, or guests without a portrait", () => {
     const rows = planAdjustedUploads([png("portrait.png"), png("Z9.png")], guests);
     expect(rows[0].problem).toContain("對不到來賓");

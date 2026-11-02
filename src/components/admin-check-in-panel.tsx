@@ -12,6 +12,7 @@ import {
   MAX_ADJUSTED_BYTES,
 } from "@/lib/portrait-limits";
 import { hasSubmittedPhoto, type RosterEntry } from "@/lib/roster";
+import { saveBlob, taipeiDateStamp } from "@/lib/save-blob";
 
 type CheckInSettings = { open: boolean; updatedAt: string | null };
 type Filter = "all" | "arrived" | "waiting" | "unadjusted";
@@ -44,18 +45,10 @@ function matchesQuery(entry: RosterEntry, query: string) {
 }
 
 function downloadCsv(entries: RosterEntry[]) {
-  const blob = new Blob([buildCheckInCsv(entries)], {
-    type: "text/csv;charset=utf-8",
-  });
-  const url = URL.createObjectURL(blob);
-  const link = document.createElement("a");
-  const stamp = new Date().toLocaleDateString("sv-SE", { timeZone: "Asia/Taipei" });
-  link.href = url;
-  link.download = `成果展報到-${stamp}.csv`;
-  document.body.append(link);
-  link.click();
-  link.remove();
-  window.setTimeout(() => URL.revokeObjectURL(url), 1_000);
+  saveBlob(
+    new Blob([buildCheckInCsv(entries)], { type: "text/csv;charset=utf-8" }),
+    `成果展報到-${taipeiDateStamp()}.csv`,
+  );
 }
 
 export function AdminCheckInPanel({ active }: { active: boolean }) {

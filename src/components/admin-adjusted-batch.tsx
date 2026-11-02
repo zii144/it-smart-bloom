@@ -1,7 +1,7 @@
 "use client";
 
 import { strToU8, zipSync, type Zippable } from "fflate";
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState, type DragEvent } from "react";
 import {
   extensionForType,
   hasPortrait,
@@ -12,27 +12,81 @@ import {
 import { sendAdjustedPortrait } from "@/lib/adjusted-upload-client";
 import { ADJUSTED_MIME_TYPES } from "@/lib/portrait-limits";
 import type { RosterEntry } from "@/lib/roster";
+import { saveBlob, taipeiDateStamp } from "@/lib/save-blob";
 
 /** Enough to keep the network busy without flooding the image route. */
 const DOWNLOAD_CONCURRENCY = 4;
+/**
+ * Each upload is a signed PUT plus a server-side check and preview build;
+ * three at once cuts a 127-file batch from ~10 minutes to a few, while each
+ * guest is still written independently.
+ */
+const UPLOAD_CONCURRENCY = 3;
+const README_NAME = "說明.txt";
 
 const README = `調整版作業說明
 
 1. 修圖時請保留原本的檔名，例如 L5_王小明_xxxxxxxx.jpg。
    系統靠檔名裡的來賓編號（最後一段）找到對應的來賓。
+   若改了檔名，也可以用座位（L5.jpg）或姓名（王小明.jpg）命名。
 2. 匯出成 JPEG、PNG 或 WebP，每張 40 MB 以內。不支援 HEIC、PSD。
-3. 回到「報到管理 → 調整版批次作業」選擇所有修好的檔案，
+3. 回到「報到管理 → 調整版批次作業」，把整個資料夾拖進來（或選擇檔案），
    先核對配對表，確認無誤後再上傳。
 4. 全部完成（已調整 = 有作品人數）後才開放報到。
 `;
+
+/** `generated`: the AI output to retouch. `result`: what guests get now, adjustments included. */
+type DownloadSource = "generated" | "result";
 
 type RowState = { state: "uploading" | "done" | "failed"; message?: string };
 
 /**
  * Failures that would hit every remaining file the same way: the network or
- * Storage (including CORS), or the admin session expiring mid-run.
+ * Storage (including CORS), the admin session expiring, or URL signing being
+ * unavailable so only small files could go through.
  */
-const STOP_THE_RUN = /儲存空間|網路|CORS|Unauthorized|Forbidden/;
+const STOP_THE_RUN = /儲存空間|網路|CORS|Unauthorized|Forbidden|此環境只能上傳/;
+
+/**
+ * Everything dropped, folders included. Entries must be read synchronously
+ * from the event, before any await, or the browser empties the DataTransfer.
+ */
+function filesFromDrop(data: DataTransfer): Promise<File[]> {
+  const entries = [...data.items]
+    .map((item) => item.webkitGetAsEntry?.())
+    .filter((entry): entry is FileSystemEntry => Boolean(entry));
+  if (!entries.length) return Promise.resolve([...data.files]);
+
+  const files: File[] = [];
+  async function walk(entry: FileSystemEntry): Promise<void> {
+    if (entry.isFile) {
+      files.push(
+        await new Promise<File>((resolve, reject) =>
+          (entry as FileSystemFileEntry).file(resolve, reject),
+        ),
+      );
+    } else if (entry.isDirectory) {
+      const reader = (entry as FileSystemDirectoryEntry).createReader();
+      // readEntries returns at most ~100 entries per call.
+      for (;;) {
+        const batch = await new Promise<FileSystemEntry[]>((resolve, reject) =>
+          reader.readEntries(resolve, reject),
+        );
+        if (!batch.length) break;
+        for (const child of batch) await walk(child);
+      }
+    }
+  }
+  return (async () => {
+    for (const entry of entries) await walk(entry);
+    return files;
+  })();
+}
+
+/** Hidden files and our own instructions are never meant as uploads. */
+function isCandidateFile(file: File) {
+  return !file.name.startsWith(".") && file.name !== README_NAME;
+}
 
 /**
  * Batch download of every original for retouching, and batch upload of the
@@ -52,6 +106,8 @@ export function AdminAdjustedBatch({
   const [plan, setPlan] = useState<{ files: File[]; rows: UploadPlanRow[] } | null>(null);
   const [rowStates, setRowStates] = useState<Record<number, RowState>>({});
   const [uploading, setUploading] = useState(false);
+  const [onlyProblems, setOnlyProblems] = useState(false);
+  const [dragging, setDragging] = useState(false);
   const [notice, setNotice] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const inputRef = useRef<HTMLInputElement>(null);
@@ -71,13 +127,15 @@ export function AdminAdjustedBatch({
     : [];
   const replacing = ready.filter((row) => row.replaces).length;
   const problems = plan ? plan.rows.length - ready.length : 0;
+  const failedCount = Object.values(rowStates).filter((state) => state.state === "failed").length;
+  const needsAttention = problems + failedCount;
 
   /** Zipped in the browser: a function response could never carry 127 originals. */
-  async function downloadOriginals() {
+  async function downloadOriginals(source: DownloadSource) {
     setError(null);
-    setNotice(null);
-    const files: Zippable = { "說明.txt": strToU8(README) };
+    const files: Zippable = { [README_NAME]: strToU8(README) };
     const failed: string[] = [];
+    let fetched = 0;
     let done = 0;
     const queue = [...guests];
     setDownloadProgress(`0/${guests.length}`);
@@ -87,7 +145,7 @@ export function AdminAdjustedBatch({
       for (let guest = queue.shift(); guest; guest = queue.shift()) {
         try {
           const response = await fetch(
-            `/api/admin30910/sessions/${guest.portraitSessionId}/image?kind=generated&original=1`,
+            `/api/admin30910/sessions/${guest.portraitSessionId}/image?kind=${source}&original=1`,
             { credentials: "same-origin" },
           );
           if (!response.ok) throw new Error(String(response.status));
@@ -95,6 +153,7 @@ export function AdminAdjustedBatch({
           const name = originalFilename(guest, extensionForType(response.headers.get("content-type")));
           // JPEG/PNG are already compressed; storing them is faster and no bigger.
           files[name] = [bytes, { level: 0 }];
+          fetched += 1;
         } catch {
           failed.push(`${guest.seat || "無座位"} ${guest.name}`);
         }
@@ -105,30 +164,33 @@ export function AdminAdjustedBatch({
 
     try {
       await Promise.all(Array.from({ length: DOWNLOAD_CONCURRENCY }, worker));
-      const blob = new Blob([zipSync(files)], { type: "application/zip" });
-      const url = URL.createObjectURL(blob);
-      const link = document.createElement("a");
-      const stamp = new Date().toLocaleDateString("sv-SE", { timeZone: "Asia/Taipei" });
-      link.href = url;
-      link.download = `調整版素材-${stamp}.zip`;
-      document.body.append(link);
-      link.click();
-      link.remove();
-      window.setTimeout(() => URL.revokeObjectURL(url), 5_000);
-      setNotice(`已下載 ${guests.length - failed.length} 張原圖。`);
-      if (failed.length) setError(`以下來賓的原圖無法下載：${failed.join("、")}`);
+      // A zip holding only the instructions would look like a finished download.
+      if (!fetched) {
+        setNotice(null);
+        setError("沒有下載到任何原圖，請確認網路或重新登入後再試。");
+        return;
+      }
+      const label = source === "result" ? "目前版本" : "調整版素材";
+      saveBlob(
+        new Blob([zipSync(files)], { type: "application/zip" }),
+        `${label}-${taipeiDateStamp()}.zip`,
+      );
+      setNotice(`已下載 ${fetched} 張${source === "result" ? "目前版本" : "原圖"}。`);
+      if (failed.length) setError(`以下來賓的圖無法下載：${failed.join("、")}`);
     } catch {
+      setNotice(null);
       setError("打包失敗，請再試一次。");
     } finally {
       setDownloadProgress(null);
     }
   }
 
-  function choose(list: FileList | null) {
-    const files = [...(list ?? [])];
+  function choose(list: File[]) {
+    const files = list.filter(isCandidateFile);
     setError(null);
     setNotice(null);
     setRowStates({});
+    setOnlyProblems(false);
     if (!files.length) {
       setPlan(null);
       return;
@@ -136,41 +198,80 @@ export function AdminAdjustedBatch({
     setPlan({ files, rows: planAdjustedUploads(files, entries) });
   }
 
+  function onDrop(event: DragEvent<HTMLElement>) {
+    event.preventDefault();
+    setDragging(false);
+    if (uploading) return;
+    void filesFromDrop(event.dataTransfer).then(choose, () =>
+      setError("無法讀取拖進來的檔案，請改用「選擇調整版檔案」。"),
+    );
+  }
+
   /**
-   * One file at a time, in the order shown. A network or Storage problem
-   * would fail every remaining file the same way, so it stops the run.
+   * A few files at a time, in table order. A failure that would hit every
+   * remaining file the same way stops the run; a bad single file does not.
    */
   async function uploadAll() {
     if (!plan) return;
-    setUploading(true);
-    setError(null);
+    const queue = plan.rows
+      .map((row, index) => ({ row, index }))
+      .filter(({ row, index }) => !row.problem && row.guest && rowStates[index]?.state !== "done");
+    const total = queue.length;
     let done = 0;
     let failed = 0;
-    for (const [index, row] of plan.rows.entries()) {
-      if (row.problem || !row.guest || rowStates[index]?.state === "done") continue;
-      setRowStates((current) => ({ ...current, [index]: { state: "uploading" } }));
-      setNotice(`上傳中 ${done + failed + 1}/${pending.length}，請勿關閉此頁…`);
-      try {
-        await sendAdjustedPortrait(row.guest.id, plan.files[index]);
-        done += 1;
-        setRowStates((current) => ({ ...current, [index]: { state: "done" } }));
-      } catch (caught) {
-        failed += 1;
-        const message = caught instanceof Error ? caught.message : "上傳失敗。";
-        setRowStates((current) => ({ ...current, [index]: { state: "failed", message } }));
-        if (STOP_THE_RUN.test(message)) {
-          setError(`已停止：${message}`);
-          break;
+    let stopped: string | null = null;
+    setUploading(true);
+    setError(null);
+    setNotice(`上傳中 0/${total}，請勿關閉此頁…`);
+
+    async function worker() {
+      for (let item = queue.shift(); item && !stopped; item = queue.shift()) {
+        const { row, index } = item;
+        setRowStates((current) => ({ ...current, [index]: { state: "uploading" } }));
+        try {
+          await sendAdjustedPortrait(row.guest!.id, plan!.files[index]);
+          done += 1;
+          setRowStates((current) => ({ ...current, [index]: { state: "done" } }));
+        } catch (caught) {
+          failed += 1;
+          const message = caught instanceof Error ? caught.message : "上傳失敗。";
+          setRowStates((current) => ({ ...current, [index]: { state: "failed", message } }));
+          if (STOP_THE_RUN.test(message)) stopped = message;
         }
+        setNotice(`上傳中 ${done + failed}/${total}，請勿關閉此頁…`);
       }
     }
+
+    await Promise.all(Array.from({ length: UPLOAD_CONCURRENCY }, worker));
     setUploading(false);
-    setNotice(`完成 ${done}/${pending.length} 張${failed ? `，失敗 ${failed} 張` : ""}。`);
+    if (stopped) setError(`已停止：${stopped}`);
+    setNotice(`完成 ${done}/${total} 張${failed ? `，失敗 ${failed} 張` : ""}。`);
+    if (failed) setOnlyProblems(true);
     await onChanged();
   }
 
+  const visibleRows = plan
+    ? plan.rows
+        .map((row, index) => ({ row, index }))
+        .filter(
+          ({ row, index }) =>
+            !onlyProblems || row.problem || rowStates[index]?.state === "failed",
+        )
+    : [];
+
   return (
-    <section className="admin-adjusted-batch" aria-labelledby="adjusted-batch-title">
+    <section
+      className={`admin-adjusted-batch${dragging ? " is-dragging" : ""}`}
+      aria-labelledby="adjusted-batch-title"
+      onDragOver={(event) => {
+        event.preventDefault();
+        if (!uploading) setDragging(true);
+      }}
+      onDragLeave={(event) => {
+        if (!event.currentTarget.contains(event.relatedTarget as Node | null)) setDragging(false);
+      }}
+      onDrop={onDrop}
+    >
       <div className="admin-adjusted-batch-head">
         <div>
           <h3 id="adjusted-batch-title">調整版批次作業</h3>
@@ -184,9 +285,18 @@ export function AdminAdjustedBatch({
             type="button"
             className="secondary-button"
             disabled={!guests.length || Boolean(downloadProgress) || uploading}
-            onClick={() => void downloadOriginals()}
+            onClick={() => void downloadOriginals("generated")}
           >
             {downloadProgress ? `下載中 ${downloadProgress}` : "下載全部原圖（zip）"}
+          </button>
+          <button
+            type="button"
+            className="secondary-button"
+            disabled={!adjustedCount || Boolean(downloadProgress) || uploading}
+            title="含已上傳的調整版，適合再修一輪"
+            onClick={() => void downloadOriginals("result")}
+          >
+            下載目前版本
           </button>
           <button
             type="button"
@@ -204,12 +314,15 @@ export function AdminAdjustedBatch({
             accept={ADJUSTED_MIME_TYPES.join(",")}
             aria-label="選擇多張調整版檔案"
             onChange={(event) => {
-              choose(event.target.files);
+              choose([...(event.target.files ?? [])]);
               event.target.value = "";
             }}
           />
         </div>
       </div>
+      <p className="admin-adjusted-drop-hint">
+        {dragging ? "放開以讀取檔案" : "也可以把修好的整個資料夾拖到這裡。"}
+      </p>
 
       {error && <p className="admin-banner">{error}</p>}
       {notice && <p className="admin-batch-hint admin-roster-notice">{notice}</p>}
@@ -221,8 +334,18 @@ export function AdminAdjustedBatch({
             {replacing > 0 && `（其中 ${replacing} 張會取代已上傳的調整版）`}
             {problems > 0 && <>，<em>有問題 {problems}（不會上傳）</em></>}
           </p>
+          {needsAttention > 0 && (
+            <button
+              type="button"
+              className="admin-adjusted-filter"
+              aria-pressed={onlyProblems}
+              onClick={() => setOnlyProblems((current) => !current)}
+            >
+              {onlyProblems ? "顯示全部" : `只看有問題或失敗（${needsAttention}）`}
+            </button>
+          )}
           <ul className="admin-adjusted-rows">
-            {plan.rows.map((row, index) => {
+            {visibleRows.map(({ row, index }) => {
               const state = rowStates[index];
               return (
                 <li
@@ -238,7 +361,11 @@ export function AdminAdjustedBatch({
                   <span className="admin-adjusted-guest">
                     {row.guest
                       ? `${row.guest.seat || "無座位"}・${row.guest.name}${
-                          row.matchedBy === "seat" ? "（依座位）" : ""
+                          row.matchedBy === "seat"
+                            ? "（依座位）"
+                            : row.matchedBy === "name"
+                              ? "（依姓名）"
+                              : ""
                         }`
                       : "—"}
                   </span>
@@ -278,6 +405,7 @@ export function AdminAdjustedBatch({
               onClick={() => {
                 setPlan(null);
                 setRowStates({});
+                setOnlyProblems(false);
               }}
             >
               清除
