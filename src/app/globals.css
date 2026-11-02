@@ -4973,6 +4973,125 @@ select:focus-visible {
   font-size: 12px;
 }
 
+.admin-adjusted-batch {
+  display: grid;
+  gap: 10px;
+  padding: 12px 14px;
+  border: 1px solid rgba(91, 63, 138, 0.22);
+  border-radius: 14px;
+  background: rgba(143, 115, 196, 0.06);
+}
+
+.admin-adjusted-batch-head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px 16px;
+}
+
+.admin-adjusted-batch h3 {
+  margin: 0;
+  color: var(--ink);
+  font-size: 14px;
+}
+
+.admin-adjusted-batch-head p,
+.admin-adjusted-summary {
+  margin: 2px 0 0;
+  color: var(--ink-soft);
+  font-size: 12px;
+  font-variant-numeric: tabular-nums;
+}
+
+.admin-adjusted-summary em {
+  color: var(--coral-dark);
+  font-style: normal;
+  font-weight: 700;
+}
+
+.admin-adjusted-batch-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.admin-adjusted-batch .secondary-button,
+.admin-adjusted-batch .primary-button {
+  width: auto;
+  min-width: 0;
+  min-height: 0;
+  padding: 7px 14px;
+  font-size: 12px;
+}
+
+.admin-adjusted-plan {
+  display: grid;
+  gap: 8px;
+}
+
+.admin-adjusted-rows {
+  display: grid;
+  gap: 3px;
+  max-height: 320px;
+  margin: 0;
+  padding: 0;
+  overflow-y: auto;
+  list-style: none;
+}
+
+.admin-adjusted-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1.4fr) auto minmax(0, 1fr) minmax(0, 1.2fr);
+  align-items: center;
+  gap: 8px;
+  padding: 5px 10px;
+  border-radius: 8px;
+  background: rgba(255, 253, 247, 0.86);
+  font-size: 12px;
+}
+
+.admin-adjusted-file {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-variant-numeric: tabular-nums;
+}
+
+.admin-adjusted-arrow {
+  color: var(--ink-soft);
+}
+
+.admin-adjusted-status {
+  color: var(--ink-soft);
+}
+
+.admin-adjusted-row.has-problem {
+  background: rgba(217, 110, 89, 0.1);
+}
+
+.admin-adjusted-row.has-problem .admin-adjusted-status,
+.admin-adjusted-row.is-failed .admin-adjusted-status {
+  color: var(--coral-dark);
+  font-weight: 700;
+}
+
+.admin-adjusted-row.is-done .admin-adjusted-status {
+  color: #2f6a3d;
+  font-weight: 700;
+}
+
+@media (max-width: 640px) {
+  .admin-adjusted-row {
+    grid-template-columns: minmax(0, 1fr);
+    gap: 2px;
+  }
+
+  .admin-adjusted-arrow {
+    display: none;
+  }
+}
+
 .admin-regenerate-progress {
   color: #7a4b00;
   font-size: 12px;

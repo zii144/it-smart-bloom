@@ -200,6 +200,30 @@ checked in get the new image on their next load; their link does not change.
   ever unchecked. The staging copy is deleted once accepted or rejected; a
   transient Storage or Firestore failure keeps it so the admin can retry.
 
+### Batch retouching (調整版批次作業)
+
+For retouching every portrait at once, **報到管理 → 調整版批次作業**:
+
+1. **下載全部原圖（zip）** zips every guest's generated original in the
+   browser (a function response could never carry them all), named
+   `{座位}_{姓名}_{來賓編號}.jpg`, with a `說明.txt`. Guests without a seat get
+   `無座位_…`.
+2. Retouch, keeping the file names. Export JPEG, PNG or WebP (no HEIC/PSD).
+3. **選擇調整版檔案…** takes all the files and shows a match table before
+   anything is sent. A file matches by the guest id in its name, or else by
+   the seat at its start (`L5.jpg`). Files that cannot be placed, that hit a
+   seat shared by two guests, a guest without a portrait, an unsupported
+   format, more than 40 MB, or a guest another file already targets, are
+   listed and never uploaded.
+4. **確定上傳** sends them one at a time through the same signed-URL path as
+   the per-guest button. A network, Storage or expired-session failure stops
+   the run; **重試其餘** sends only what did not finish. The page warns before
+   closing mid-run.
+
+The header and the 似顏繪 card show 已調整 x/y, and the 未調整 filter lists who
+is left. Open check-in only once every portrait is adjusted: a guest who
+checks in earlier gets the generated version first.
+
 ### Re-running failed portraits (重新生成)
 
 If a render failed (for example the OpenAI account ran out of credits), staff

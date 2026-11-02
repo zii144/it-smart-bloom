@@ -3,6 +3,9 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { buildCheckInCsv, portraitLabel } from "@/lib/check-in-csv";
 import { formatTaipeiTime } from "@/lib/event-info";
+import { AdminAdjustedBatch } from "@/components/admin-adjusted-batch";
+import { hasPortrait } from "@/lib/adjusted-batch";
+import { readError, sendAdjustedPortrait } from "@/lib/adjusted-upload-client";
 import {
   ADJUSTED_MIME_TYPES,
   isAdjustedMime,
@@ -11,79 +14,13 @@ import {
 import { hasSubmittedPhoto, type RosterEntry } from "@/lib/roster";
 
 type CheckInSettings = { open: boolean; updatedAt: string | null };
-type Filter = "all" | "arrived" | "waiting";
+type Filter = "all" | "arrived" | "waiting" | "unadjusted";
 
 /** Polling is only for the live arrival board; each read costs one roster scan. */
 const REFRESH_MS = 10_000;
-type UploadTarget =
-  | {
-      mode: "signed";
-      uploadUrl: string;
-      objectPath: string;
-      /** Signed into the URL: the PUT must send exactly these. */
-      headers: Record<string, string>;
-    }
-  | { mode: "direct"; maxBytes: number };
-
 const MAX_ADJUSTED_MB = MAX_ADJUSTED_BYTES / 1024 / 1024;
-
-async function postJson(url: string, body: unknown) {
-  const response = await fetch(url, {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify(body),
-    credentials: "same-origin",
-  });
-  if (!response.ok) throw new Error(await readError(response));
-  return response;
-}
-
-/**
- * Vercel rejects function bodies over 4.5 MB, so the original goes straight
- * to Storage through a signed URL and the server then checks it. Only where
- * URLs cannot be signed (local emulators) does the file pass through the API.
- */
-async function sendAdjustedPortrait(entryId: string, file: File) {
-  const base = `/api/admin30910/roster/${entryId}/portrait`;
-  const target = (await (
-    await postJson(`${base}/upload-url`, { mime: file.type, size: file.size })
-  ).json()) as UploadTarget;
-
-  if (target.mode === "signed") {
-    let put: Response;
-    try {
-      put = await fetch(target.uploadUrl, {
-        method: "PUT",
-        headers: target.headers,
-        body: file,
-      });
-    } catch {
-      throw new Error("無法上傳到儲存空間，請確認網路，或 Storage 的 CORS 設定。");
-    }
-    if (!put.ok) throw new Error(`上傳到儲存空間失敗（${put.status}），請再試一次。`);
-    await postJson(base, { objectPath: target.objectPath });
-    return;
-  }
-
-  if (file.size > target.maxBytes) {
-    throw new Error(
-      `此環境只能上傳 ${Math.floor(target.maxBytes / 1024 / 1024)} MB 以下的圖片。`,
-    );
-  }
-  const body = new FormData();
-  body.append("image", file);
-  const response = await fetch(base, { method: "POST", body, credentials: "same-origin" });
-  if (!response.ok) throw new Error(await readError(response));
-}
-
 type RosterPayload = { entries: RosterEntry[]; checkIn: CheckInSettings };
 
-async function readError(response: Response) {
-  const payload = (await response.json().catch(() => null)) as {
-    error?: string;
-  } | null;
-  return payload?.error || `操作失敗（${response.status}）`;
-}
 
 async function fetchRoster(): Promise<RosterPayload> {
   const response = await fetch("/api/admin30910/roster", {
@@ -194,6 +131,7 @@ export function AdminCheckInPanel({ active }: { active: boolean }) {
 
   const arrived = entries.filter((entry) => entry.checkedInAt);
   const portraits = entries.filter((entry) => entry.portraitStatus === "complete");
+  const unadjusted = portraits.filter((entry) => !entry.portraitAdjustedAt);
   const failed = entries.filter(
     (entry) => entry.portraitStatus === "failed" && entry.portraitSessionId,
   );
@@ -203,7 +141,11 @@ export function AdminCheckInPanel({ active }: { active: boolean }) {
     const list = entries.filter(
       (entry) =>
         (filter === "all" ||
-          (filter === "arrived" ? Boolean(entry.checkedInAt) : !entry.checkedInAt)) &&
+          (filter === "unadjusted"
+            ? hasPortrait(entry) && !entry.portraitAdjustedAt
+            : filter === "arrived"
+              ? Boolean(entry.checkedInAt)
+              : !entry.checkedInAt)) &&
         matchesQuery(entry, query.trim()),
     );
     // The arrivals view reads like a live feed: latest first.
@@ -434,7 +376,7 @@ export function AdminCheckInPanel({ active }: { active: boolean }) {
           <div className="admin-metric">
             <span>似顏繪</span>
             <strong>{portraits.length}</strong>
-            <small>已完成作品</small>
+            <small>已調整 {portraits.length - unadjusted.length}/{portraits.length}</small>
           </div>
         </div>
       </div>
@@ -456,6 +398,10 @@ export function AdminCheckInPanel({ active }: { active: boolean }) {
       {(error ?? loadError) && <p className="admin-banner">{error ?? loadError}</p>}
       {notice && !error && !loadError && <p className="admin-batch-hint admin-roster-notice">{notice}</p>}
 
+      {!loading && portraits.length > 0 && (
+        <AdminAdjustedBatch entries={entries} onChanged={reload} />
+      )}
+
       <div className="admin-roster-toolbar">
         <div className="admin-segmented" role="group" aria-label="報到篩選">
           {(
@@ -463,6 +409,7 @@ export function AdminCheckInPanel({ active }: { active: boolean }) {
               ["all", `全部 ${entries.length}`],
               ["arrived", `已報到 ${arrived.length}`],
               ["waiting", `未報到 ${entries.length - arrived.length}`],
+              ["unadjusted", `未調整 ${unadjusted.length}`],
             ] as const
           ).map(([value, label]) => (
             <button
