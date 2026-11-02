@@ -227,6 +227,17 @@ The header and the 似顏繪 card show 已調整 x/y, and the 未調整 filter l
 is left. Open check-in only once every portrait is adjusted: a guest who
 checks in earlier gets the generated version first.
 
+### Agent skill (`.claude/skills/bloom-adjusted-portraits`)
+
+The same workflow for an AI agent: plain Node scripts (no install) over the
+admin API with Basic auth from `BLOOM_ADMIN_SECRET`, against `BLOOM_BASE_URL`
+(default production). `status.mjs` is read-only and says whether check-in may
+open; `regenerate.mjs` and `upload.mjs` are dry runs unless given `--apply
+--expect N`, where N must equal the count the dry run printed. Opening
+check-in or photo submissions, 允許重新上傳 and 還原原圖 stay with people.
+The scripts copy the panel's file naming and matching;
+`tests/skill-adjusted-portraits.test.ts` fails if the two ever disagree.
+
 ### Re-running failed portraits (重新生成)
 
 If a render failed (for example the OpenAI account ran out of credits), staff
