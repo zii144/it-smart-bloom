@@ -9,6 +9,7 @@ import {
   setCheckInOpen, undoRosterCheckIn, updateRosterEntry,
 } from "@/lib/roster-store";
 import { readSeatStatus, rebuildSeatStatus } from "@/lib/seat-status-store";
+import { readSeatGuests } from "@/lib/seat-guest-store";
 import { resetData } from "@/lib/data-reset";
 
 const firestoreHost = process.env.FIRESTORE_EMULATOR_HOST;
@@ -58,6 +59,18 @@ describe.skipIf(firestoreHost !== "127.0.0.1:8181" || authHost !== "127.0.0.1:91
     expect((await readSeatStatus()).entries).toEqual([{ id: "legacy", seat: "A1", checkedInAt: source.checkedInAt }]);
     await rebuildSeatStatus();
     expect((await readSeatStatus()).entries).toHaveLength(1);
+  });
+
+  it("looks up only safe guest fields and excludes stale seat assignments", async () => {
+    const entry = await createRosterEntry(person("a1"));
+    const checked = await checkInRosterEntry(entry.id, "admin");
+    expect(await readSeatGuests("A1", [entry.id])).toEqual([
+      { id: entry.id, name: "私人姓名", role: "", seat: "A1", checkedInAt: checked.checkedInAt },
+    ]);
+    await updateRosterEntry(entry.id, person("B2"));
+    expect(await readSeatGuests("A1", [entry.id])).toEqual([]);
+    await deleteRosterEntry(entry.id);
+    expect(await readSeatGuests("B2", [entry.id])).toEqual([]);
   });
 
   it("mirrors open/closed settings and clears the display with event resets", async () => {

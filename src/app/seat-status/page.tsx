@@ -7,6 +7,7 @@ export const metadata: Metadata = {
   robots: { index: false, follow: false },
 };
 
-export default function SeatStatusPage() {
-  return <SeatStatusDashboard />;
+export default async function SeatStatusPage({ searchParams }: { searchParams: Promise<{ preview?: string }> }) {
+  const { preview } = await searchParams;
+  return <SeatStatusDashboard initialPreview={preview === "1"} />;
 }

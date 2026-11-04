@@ -1,90 +1,67 @@
 "use client";
 
-import { useEffect, useMemo, useRef, useState, type CSSProperties, type FormEvent } from "react";
-import { EVENT_INFO, formatTaipeiTime } from "@/lib/event-info";
-import { buildSeatBoard, type SeatStatusSnapshot } from "@/lib/seat-status";
+import { useEffect, useMemo, useRef, useState, type FormEvent } from "react";
+import { formatTaipeiTime } from "@/lib/event-info";
+import { buildSeatBoard, normalizeSeatLabel, type SeatStatusSnapshot } from "@/lib/seat-status";
 import { useSeatStatus, type SeatConnection } from "@/lib/seat-status-client";
+import { FLOOR_PLAN_COLUMNS, FLOOR_PLAN_LABELS, FLOOR_PLAN_ROWS, FLOOR_PLAN_SEATS } from "@/lib/seat-floor-plan";
 import styles from "./seat-status-dashboard.module.css";
+import { SeatGuestCard } from "./seat-guest-card";
 
 const CONNECTION: Record<SeatConnection, string> = {
   connecting: "連線中", live: "即時連線", polling: "每 5 秒同步", offline: "連線中斷・保留最後資料", "auth-required": "等候顯示授權",
 };
 
-function StatusMark({ checked, conflict = false }: { checked: boolean; conflict?: boolean }) {
-  return <span className={styles.mark} aria-hidden="true">{conflict ? "!" : checked ? "✓" : "○"}</span>;
-}
-
-/** Preview data is generated in the browser, visibly labelled and never written. */
 function demoSnapshot(): SeatStatusSnapshot {
   return {
-    entries: Array.from({ length: 144 }, (_, index) => ({
-      id: `demo-${index}`,
-      seat: `${String.fromCharCode(65 + Math.floor(index / 18))}${index % 18 + 1}`,
-      checkedInAt: index % 5 < 3 ? new Date(Date.now() - (144 - index) * 20_000).toISOString() : null,
+    entries: FLOOR_PLAN_SEATS.map((seat, index) => ({
+      id: `demo-${seat.label}`, seat: seat.label,
+      // Demo arrivals reproduce the reference's peach N/O rows.
+      checkedInAt: index >= 156 ? "2026-11-10T05:10:00.000Z" : null,
     })),
-    checkIn: { open: true, updatedAt: null }, verifiedAt: new Date().toISOString(),
+    checkIn: { open: true, updatedAt: null }, verifiedAt: "2026-11-10T05:10:00.000Z",
   };
 }
 
-export function SeatStatusDashboard() {
+function VerticalLabel({ text, x, y, className }: { text: string; x: number; y: number; className?: string }) {
+  return <text x={x} y={y} textAnchor="middle" className={className}>{[...text].map((letter, index) => <tspan key={index} x={x} dy={index ? "1.08em" : 0}>{letter}</tspan>)}</text>;
+}
+
+export function SeatStatusDashboard({ initialPreview = false }: { initialPreview?: boolean }) {
   const [sessionVersion, setSessionVersion] = useState(0);
-  const [demo, setDemo] = useState(false);
-  const [preview, setPreview] = useState<SeatStatusSnapshot | null>(null);
+  const [demo, setDemo] = useState(initialPreview);
+  const [preview, setPreview] = useState<SeatStatusSnapshot | null>(() => initialPreview ? demoSnapshot() : null);
   const { snapshot: liveSnapshot, connection: liveConnection } = useSeatStatus(sessionVersion, demo);
   const snapshot = demo ? preview : liveSnapshot;
   const connection = demo ? "live" : liveConnection;
   const board = useMemo(() => buildSeatBoard(snapshot?.entries ?? []), [snapshot]);
+  const mapped = useMemo(() => new Map(board.seats.map((seat) => [seat.label, seat])), [board]);
+  const outsidePlan = board.seats.filter((seat) => !FLOOR_PLAN_LABELS.has(seat.label));
   const [key, setKey] = useState("");
   const [signingIn, setSigningIn] = useState(false);
   const [error, setError] = useState("");
-  const [section, setSection] = useState("");
-  const [page, setPage] = useState(0);
-  const [rotating, setRotating] = useState(true);
-  const [capacity, setCapacity] = useState(120);
-  const [columns, setColumns] = useState(12);
+  const [informationOpen, setInformationOpen] = useState(false);
   const [fullscreen, setFullscreen] = useState(false);
-  const grid = useRef<HTMLDivElement>(null);
-  const recentIds = useRef(new Set<string>());
-  const arrivalsInitialized = useRef(false);
+  const [selectedSeat, setSelectedSeat] = useState<{ seat: string; left: number; top: number } | null>(null);
+  const hideGuestTimer = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
+  const selectedEntries = useMemo(() => snapshot?.entries.filter((entry) => normalizeSeatLabel(entry.seat) === selectedSeat?.seat) ?? [], [snapshot, selectedSeat]);
+  const previousArrivals = useRef(new Set<string>());
+  const initialized = useRef(false);
   const [highlighted, setHighlighted] = useState<Set<string>>(new Set());
-  const activeSection = board.sections.includes(section) ? section : "";
-  const seats = activeSection ? board.seats.filter((seat) => seat.section === activeSection) : board.seats;
-  const pages = Math.max(1, Math.ceil(seats.length / capacity));
-  const currentPage = Math.min(page, pages - 1);
-  const visibleSeats = seats.slice(currentPage * capacity, (currentPage + 1) * capacity);
-  const rate = board.total ? Math.round(board.arrived / board.total * 100) : 0;
   const needsAuth = !demo && connection === "auth-required";
-
-  useEffect(() => {
-    const container = grid.current;
-    if (!container) return;
-    const observer = new ResizeObserver(([entry]) => {
-      const cols = Math.max(1, Math.floor(entry.contentRect.width / 72));
-      const rows = Math.max(1, Math.floor(entry.contentRect.height / 68));
-      setColumns(cols);
-      setCapacity(cols * rows);
-    });
-    observer.observe(container);
-    return () => observer.disconnect();
-  }, []);
-
-  useEffect(() => {
-    if (!rotating || pages <= 1 || needsAuth) return;
-    const timer = setInterval(() => setPage((page) => (page + 1) % pages), 12_000);
-    return () => clearInterval(timer);
-  }, [rotating, pages, needsAuth]);
+  const rate = board.total ? Math.round(board.arrived / board.total * 100) : 0;
 
   useEffect(() => {
     if (!snapshot) return;
-    const arrived = new Set(snapshot.entries.filter((entry) => entry.checkedInAt).map((entry) => entry.id));
-    const newSeats = new Set(snapshot.entries.filter((entry) => arrived.has(entry.id) && !recentIds.current.has(entry.id))
-      .map((entry) => entry.seat.normalize("NFKC").trim().replace(/\s+/g, " ").toUpperCase()));
-    const initial = !arrivalsInitialized.current;
-    arrivalsInitialized.current = true;
-    recentIds.current = arrived;
-    if (initial || !newSeats.size) return;
-    const start = setTimeout(() => setHighlighted(newSeats), 0);
-    return () => clearTimeout(start);
+    const arrivals = new Set(snapshot.entries.filter((entry) => entry.checkedInAt).map((entry) => entry.id));
+    const newSeats = new Set(snapshot.entries.filter((entry) => arrivals.has(entry.id) && !previousArrivals.current.has(entry.id))
+      .map((entry) => normalizeSeatLabel(entry.seat)));
+    const first = !initialized.current;
+    initialized.current = true;
+    previousArrivals.current = arrivals;
+    if (first || !newSeats.size) return;
+    const timer = setTimeout(() => setHighlighted(newSeats), 0);
+    return () => clearTimeout(timer);
   }, [snapshot]);
 
   useEffect(() => {
@@ -99,21 +76,33 @@ export function SeatStatusDashboard() {
     return () => document.removeEventListener("fullscreenchange", changed);
   }, []);
 
+  useEffect(() => () => clearTimeout(hideGuestTimer.current), []);
+
+  function keepGuestOpen() { clearTimeout(hideGuestTimer.current); }
+  function closeGuest() { keepGuestOpen(); setSelectedSeat(null); }
+  function scheduleGuestClose() {
+    keepGuestOpen();
+    hideGuestTimer.current = setTimeout(() => setSelectedSeat(null), 180);
+  }
+  function showGuest(seat: string, target: SVGGElement) {
+    keepGuestOpen();
+    const rect = target.getBoundingClientRect();
+    const width = Math.min(280, window.innerWidth - 24);
+    const left = rect.right + width + 12 <= window.innerWidth ? rect.right + 10 : rect.left - width - 10;
+    setSelectedSeat({ seat, left: Math.max(12, Math.min(left, window.innerWidth - width - 12)), top: Math.max(12, Math.min(rect.top, window.innerHeight - 340)) });
+  }
+
   async function signIn(event: FormEvent) {
-    event.preventDefault();
-    setSigningIn(true);
-    setError("");
+    event.preventDefault(); setSigningIn(true); setError("");
     try {
       const response = await fetch("/api/seat-status/access", {
-        method: "POST", credentials: "same-origin", headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ key }),
+        method: "POST", credentials: "same-origin", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ key }),
       });
       if (!response.ok) {
         const result = await response.json().catch(() => null);
         throw new Error(response.status === 404 ? "尚未設定工作人員密碼，請聯絡管理員。" : result?.error ?? "無法啟用看板，請重試。");
       }
-      setKey("");
-      setSessionVersion((version) => version + 1);
+      setKey(""); setSessionVersion((version) => version + 1);
     } catch (caught) { setError(caught instanceof Error ? caught.message : "無法啟用看板。"); }
     finally { setSigningIn(false); }
   }
@@ -127,57 +116,100 @@ export function SeatStatusDashboard() {
     } catch { setError("無法進入全螢幕，請使用瀏覽器的全螢幕功能。"); }
   }
 
-  function openPreview() { setPreview(demoSnapshot()); setDemo(true); setPage(0); }
+  function openPreview() { setPreview(demoSnapshot()); setDemo(true); }
 
   return (
-    <main className={styles.dashboard}>
-      <header className={styles.header} inert={needsAuth}>
-        <div className={styles.brand}><span className={styles.brandFlower} aria-hidden="true">✳</span><span>智晟<span className={styles.brandDivider}>／</span>綻放<small>每一份抵達，都是相聚的開始</small></span></div>
-        <div className={styles.heading}><p>LIVE ATTENDANCE</p><h1>即時座位看板</h1></div>
-        <div className={styles.headerActions}>
-          <span className={`${styles.connection} ${connection === "live" ? styles.connected : ""}`} role="status"><i />{demo ? "示範資料・非即時報到" : CONNECTION[connection]}</span>
-          <button type="button" className={styles.iconButton} onClick={toggleFullscreen} aria-label={fullscreen ? "離開全螢幕" : "進入全螢幕"}>
-            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" aria-hidden="true"><path d="M8 3H3v5m13-5h5v5M3 16v5h5m13-5v5h-5" /></svg>
-          </button>
-        </div>
-      </header>
-
-      {demo && <div className={styles.demoBanner}>版面預覽・所有座位與報到均為示範資料<button onClick={() => { setDemo(false); setPage(0); }}>返回即時看板</button></div>}
-
-      <section className={styles.metrics} aria-label="報到統計" inert={needsAuth}>
-        <div className={styles.primaryMetric}><span>已報到</span><strong>{snapshot ? board.arrived : "—"}<small>位</small></strong><span className={styles.metricNote}>歡迎來到綻放</span></div>
-        <div><span>尚未報到</span><strong>{snapshot ? board.waiting : "—"}<small>位</small></strong></div>
-        <div><span>名單總人數</span><strong>{snapshot ? board.total : "—"}<small>位</small></strong></div>
-        <div className={styles.progressMetric}><div><span>報到進度</span><strong>{snapshot ? rate : "—"}<small>%</small></strong></div><div className={styles.progressTrack} role="progressbar" aria-label="報到進度" aria-valuemin={0} aria-valuemax={100} aria-valuenow={rate}><span style={{ width: `${rate}%` }} /></div><small>{snapshot ? (snapshot.checkIn.open ? "現正開放報到" : "報到尚未開放／已關閉") : "等候資料同步"}</small></div>
+    <main className={styles.dashboard} onPointerDown={(event) => {
+      if (!(event.target as Element).closest("[data-floor-seat], [data-guest-card]")) closeGuest();
+    }} onKeyDown={(event) => { if (event.key === "Escape") closeGuest(); }}>
+      <section className={styles.mapFrame} aria-label="座位報到狀態" inert={needsAuth}>
+        <svg className={styles.floorPlan} viewBox="0 0 418 745" preserveAspectRatio="xMidYMid meet" role="group" aria-labelledby="floor-plan-title floor-plan-description">
+          <title id="floor-plan-title">114及115年度路老師頒獎授證典禮暨成果展座位圖</title>
+          <desc id="floor-plan-description">舞台前方兩排 VIP，A 至 O 排每排十二席，每四席一組，保留兩條縱向走道與 C、J 排後方橫向走道。左側有茶水區、門口及兩處報到區，後方 N、O 排為預備座。桃色代表已報到。</desc>
+          <rect width="418" height="745" className={styles.paper} />
+          <text x="26" y="26" className={styles.mapTitle} textLength="321" lengthAdjust="spacingAndGlyphs">114及115年度路老師頒獎授證典禮暨成果展</text>
+          <text x="347" y="26" className={`${styles.mapTitle} ${styles.redText}`} textLength="45" lengthAdjust="spacingAndGlyphs">座位圖</text>
+          <path d="M22 35.5H398" className={styles.titleRule} />
+          <rect x="57" y="45" width="326" height="35" rx="2" className={styles.stage} />
+          <text x="220" y="68" textAnchor="middle" className={styles.stageText}>舞 台 區</text>
+          {[91, 126].map((y, row) => <g key={y} aria-label={`VIP 第 ${row + 1} 排，場地標示`}>
+            {[78, 242].flatMap((start) => [..."VIPVIP"].map((letter, index) => <g key={`${start}-${index}`}>
+              <rect x={start + index * 20.5} y={y} width="17" height="26" rx="2" className={styles.vip} />
+              <text x={start + index * 20.5 + 8.5} y={y + 17} textAnchor="middle" className={styles.vipText}>{letter}</text>
+            </g>))}
+            <text x="397" y={y + 17} textAnchor="middle" className={`${styles.rowNumber} ${styles.redText}`}>{row + 1}</text>
+          </g>)}
+          <g aria-label="A 至 O 排座位">
+            {FLOOR_PLAN_ROWS.map((row, rowIndex) => <g key={row.label} aria-label={`${row.label} 排`}>
+              {FLOOR_PLAN_COLUMNS.map((x, column) => {
+                const label = `${row.label}${column + 1}`;
+                const seat = mapped.get(label);
+                const conflict = Boolean(seat && seat.assigned > 1);
+                const arrived = Boolean(seat?.arrived);
+                const status = conflict ? `重複分配 ${seat!.assigned} 位，已報到 ${seat!.arrived} 位` : arrived ? "已報到" : seat ? "尚未報到" : snapshot ? "尚未分配" : "等候同步";
+                // <title> must have one text child for SSR and hydration to agree.
+                const tooltip = `${label}・${status}${arrived && seat?.checkedInAt ? `・${formatTaipeiTime(seat.checkedInAt)}` : ""}`;
+                return <g key={label} className={`${styles.seat} ${rowIndex % 2 ? styles.alternate : ""} ${snapshot && !seat ? styles.unassigned : ""} ${arrived ? styles.arrived : ""} ${conflict ? styles.conflict : ""} ${highlighted.has(label) ? styles.justArrived : ""}`} aria-label={`${label}，${status}`}
+                  role="button" tabIndex={0} aria-haspopup="dialog" aria-expanded={!needsAuth && selectedSeat?.seat === label}
+                  aria-controls={!needsAuth && selectedSeat?.seat === label ? "seat-guest-card" : undefined} data-floor-seat
+                  onPointerEnter={(event) => showGuest(label, event.currentTarget)} onPointerLeave={scheduleGuestClose}
+                  onFocus={(event) => showGuest(label, event.currentTarget)} onBlur={(event) => {
+                    if (!(event.relatedTarget instanceof Element && event.relatedTarget.closest("[data-guest-card]"))) scheduleGuestClose();
+                  }} onClick={(event) => showGuest(label, event.currentTarget)} onKeyDown={(event) => {
+                    if (event.key === "Enter" || event.key === " ") { event.preventDefault(); showGuest(label, event.currentTarget); }
+                  }}>
+                  <title>{tooltip}</title>
+                  <rect x={x} y={row.y} width="21" height="26" rx="2" />
+                  <text x={x + 10.5} y={row.y + 16} textAnchor="middle" className={styles.seatLabel}>{label}</text>
+                  {arrived && !conflict && <path d={`M${x + 14} ${row.y + 4}l1.5 1.5 2.5-3`} className={styles.arrivalTick} aria-hidden="true" />}
+                  {conflict && <text x={x + 17.5} y={row.y + 6} textAnchor="middle" className={styles.conflictMark}>!</text>}
+                </g>;
+              })}
+              <text x="397" y={row.y + 17} textAnchor="middle" className={`${styles.rowNumber} ${rowIndex >= 13 ? styles.reservedNumber : ""}`}>{rowIndex + 3}</text>
+            </g>)}
+          </g>
+          <path d="M31.5 45V522M31.5 554V741" className={styles.wall} />
+          <path d="M31.5 522A16 16 0 0 0 15.5 538H31.5M31.5 538A16 16 0 0 0 15.5 554H31.5" className={styles.doors} />
+          <rect x="37" y="330" width="15" height="131" rx="1" className={styles.stage} />
+          <VerticalLabel text="茶水區" x={44.5} y={385} className={styles.teaText} />
+          <rect x="9" y="568" width="17" height="41" rx="1" className={styles.vip} />
+          <VerticalLabel text="報到區" x={17.5} y={579} className={styles.checkInText} />
+          <rect x="9" y="684" width="17" height="46" rx="1" className={styles.vip} />
+          <VerticalLabel text="報到區" x={17.5} y={698} className={styles.checkInText} />
+          <VerticalLabel text="預備座" x={397} y={683} className={styles.reservedText} />
+        </svg>
       </section>
-
-      <div className={styles.workspace} inert={needsAuth}>
-        <section className={styles.board} aria-label="座位報到狀態">
-          <div className={styles.boardHeader}><div><h2>座位一覽<span>{snapshot ? `${board.seats.length} 個座位` : ""}</span></h2><p>依座位編號排列・顯示報到狀態</p></div>
-            <label className={styles.sectionSelect}><span className={styles.srOnly}>篩選座位區域</span><select value={activeSection} onChange={(event) => { setSection(event.target.value); setPage(0); }}><option value="">全部區域</option>{board.sections.map((value) => <option key={value} value={value}>{value === "其他" ? value : `${value} 區`}</option>)}</select></label>
-          </div>
-          <div className={styles.legend}><span><StatusMark checked />已報到</span><span><StatusMark checked={false} />尚未報到</span>{board.conflicts > 0 && <span className={styles.conflictLegend}><StatusMark checked={false} conflict />重複座位 {board.conflicts}</span>}</div>
-          <div ref={grid} className={styles.gridViewport}>
-            {!snapshot ? <div className={styles.empty}><span className={styles.emptyFlower} aria-hidden="true">✳</span><h3>{needsAuth ? "準備迎接每一份抵達" : "正在連線座位看板"}</h3><p>{needsAuth ? "工作人員啟用後，報到狀態將自動同步。" : connection === "offline" ? "暫時無法連線，正在自動重試。" : "正在取得最新報到資料，請稍候。"}</p>{!needsAuth && <button onClick={openPreview} className={styles.textButton}>先預覽看板版面</button>}</div>
-              : visibleSeats.length === 0 ? <div className={styles.empty}><h3>{board.total ? "尚未分配座位" : "名單尚未匯入"}</h3><p>{board.total ? "報到人數仍會同步；分配座位後會自動顯示。" : "請在管理後台匯入活動名單與座位編號。"}</p></div>
-                : <div className={styles.seatGrid} style={{ "--seat-columns": columns } as CSSProperties}>{visibleSeats.map((seat) => {
-                  const conflict = seat.assigned > 1;
-                  const checked = seat.arrived > 0;
-                  return <div key={seat.label} className={`${styles.seat} ${conflict ? styles.conflict : checked ? styles.arrived : styles.waiting} ${highlighted.has(seat.label) ? styles.justArrived : ""}`} aria-label={`${seat.label}，${conflict ? `重複分配 ${seat.assigned} 位，已報到 ${seat.arrived} 位` : checked ? "已報到" : "尚未報到"}`} title={conflict ? `${seat.assigned} 位共用此座位，請工作人員確認` : checked ? `報到時間 ${formatTaipeiTime(seat.checkedInAt!)}` : "尚未報到"}><StatusMark checked={checked} conflict={conflict} /><strong>{seat.label}</strong>{conflict && <small>{seat.arrived}/{seat.assigned}</small>}</div>;
-                })}</div>}
-          </div>
-          <div className={styles.boardFooter}><span>{board.unassigned > 0 ? `${board.unassigned} 位尚未分配座位（已計入總人數）` : "報到不代表已入座"}</span><div className={styles.pagination}>{pages > 1 && <><button aria-label="上一頁座位" onClick={() => setPage((currentPage + pages - 1) % pages)}>‹</button><span>{currentPage + 1} / {pages}</span><button aria-label="下一頁座位" onClick={() => setPage((currentPage + 1) % pages)}>›</button><button onClick={() => setRotating(!rotating)} aria-pressed={rotating}>{rotating ? "暫停輪播" : "自動輪播"}</button></>}</div></div>
-        </section>
-
-        <aside className={styles.sidebar}>
-          <div className={styles.recent}><div className={styles.asideTitle}><h2>最新抵達</h2><span>WELCOME</span></div><p>每一個亮起的座位，都是期待的相聚。</p><ol>{board.recent.map((seat, index) => <li key={seat.label}><span className={styles.recentNumber}>{String(index + 1).padStart(2, "0")}</span><strong>{seat.label}<small>已報到{seat.assigned > 1 ? ` ${seat.arrived}/${seat.assigned}` : ""}</small></strong><time dateTime={seat.checkedInAt!}>{formatTaipeiTime(seat.checkedInAt!)}</time></li>)}</ol>{board.recent.length === 0 && <div className={styles.recentEmpty}>等候第一份抵達</div>}</div>
-          <div className={styles.event}><span>相聚・綻放</span><strong>路老師培訓宣講計畫<br />成果展</strong><p>{EVENT_INFO.date}<br />{EVENT_INFO.venue}</p></div>
-        </aside>
-      </div>
-      <footer className={styles.footer}><span>智晟｜綻放 <span className={styles.footerDot}>·</span> 即時報到看板</span><span>{snapshot ? `最後同步 ${formatTaipeiTime(snapshot.verifiedAt)}` : "等候連線"}</span></footer>
+      <section className={styles.statusLegend} aria-label="報到狀態圖例" inert={needsAuth}>
+        <h2>顏色說明</h2>
+        <ul>
+          <li><span className={`${styles.statusSwatch} ${styles.arrivedSwatch}`} aria-hidden="true">✓</span><span>已報到</span></li>
+          <li><span className={`${styles.statusSwatch} ${styles.waitingSwatch}`} aria-hidden="true">○</span><span>未報到</span></li>
+          <li><span className={`${styles.statusSwatch} ${styles.unassignedSwatch}`} aria-hidden="true">–</span><span>未分配</span></li>
+          <li><span className={`${styles.statusSwatch} ${styles.conflictSwatch}`} aria-hidden="true">!</span><span>重複座位</span></li>
+        </ul>
+        <p>白色／淺綠色皆為未報到；磚紅色為 VIP 區標示。</p>
+      </section>
+      <footer className={styles.toolbar} inert={needsAuth}>
+        <span role="status" className={connection === "offline" ? styles.offline : undefined}>{demo ? "示範資料・非即時報到" : CONNECTION[connection]}</span>
+        <div><button type="button" onClick={() => setInformationOpen(!informationOpen)} aria-expanded={informationOpen} aria-controls="seat-display-information">看板資訊</button><button type="button" onClick={toggleFullscreen} aria-label={fullscreen ? "離開全螢幕" : "進入全螢幕"}>{fullscreen ? "離開全螢幕" : "全螢幕"}</button></div>
+      </footer>
+      {!needsAuth && selectedSeat && <SeatGuestCard key={`${demo}:${sessionVersion}:${selectedSeat.seat}:${selectedEntries.map((entry) => entry.id).join(",")}`}
+        seat={selectedSeat.seat} entries={selectedEntries} demo={demo} position={{ left: selectedSeat.left, top: selectedSeat.top }}
+        onClose={closeGuest} onEnter={keepGuestOpen} onLeave={scheduleGuestClose} />}
+      {informationOpen && <aside className={styles.information} id="seat-display-information" aria-label="看板資訊" inert={needsAuth}>
+        <div className={styles.informationHeading}><h2>報到資訊</h2><button onClick={() => setInformationOpen(false)} aria-label="關閉看板資訊">×</button></div>
+        <section aria-label="報到統計" className={styles.metrics}><p>已報到<strong>{snapshot ? board.arrived : "—"} 位</strong></p><p>尚未報到<strong>{snapshot ? board.waiting : "—"} 位</strong></p><p>名單總人數<strong>{snapshot ? board.total : "—"} 位</strong></p></section>
+        <div className={styles.progress} role="progressbar" aria-label="報到進度" aria-valuemin={0} aria-valuemax={100} aria-valuenow={rate}><span style={{ width: `${rate}%` }} /></div>
+        <p>報到進度 {rate}%・{snapshot?.checkIn.open ? "現正開放報到" : "報到尚未開放／已關閉"}</p>
+        <p>桃色（#F8DDD3）代表已報到。N、O 排為預備座；VIP 區依參考圖保留場地標示，尚未對應名單編號。</p>
+        {board.conflicts > 0 && <p className={styles.warning}>重複座位 {board.conflicts}，請工作人員確認。</p>}
+        {board.unassigned > 0 && <p>{board.unassigned} 位尚未分配座位（已計入總人數）</p>}
+        {outsidePlan.length > 0 && <p className={styles.warning}>場地圖外的座位：{outsidePlan.map((seat) => seat.label).join("、")}。已保留在統計中，請確認座位編號。</p>}
+        <p>{snapshot ? `最後同步 ${formatTaipeiTime(snapshot.verifiedAt)}` : "等候連線"}・報到不代表已入座</p>
+        {demo ? <button className={styles.primaryButton} onClick={() => setDemo(false)}>返回即時看板</button> : <button onClick={openPreview}>先預覽看板版面</button>}
+      </aside>}
       {error && !needsAuth && <div className={styles.notice} role="alert">{error}<button onClick={() => setError("")} aria-label="關閉提示">×</button></div>}
-
-      {needsAuth && <div className={styles.loginOverlay}><section className={styles.loginCard} role="dialog" aria-modal="true" aria-labelledby="display-login-title"><span className={styles.loginEyebrow}>智晟｜綻放</span><h2 id="display-login-title">啟用座位看板</h2><p>輸入工作人員密碼，開始同步現場報到。<br />本畫面僅顯示座位與報到狀態。</p><form onSubmit={signIn}><label htmlFor="seat-display-key">工作人員密碼</label><input id="seat-display-key" type="password" autoComplete="current-password" value={key} onChange={(event) => setKey(event.target.value)} required autoFocus /><button type="submit" disabled={signingIn}>{signingIn ? "正在準備看板…" : "啟用即時看板"}</button>{error && <p className={styles.loginError} role="alert">{error}</p>}</form><button className={styles.textButton} onClick={openPreview}>先預覽看板版面</button><small>顯示授權有效 12 小時</small></section></div>}
+      {needsAuth && <div className={styles.loginOverlay}><section className={styles.loginCard} role="dialog" aria-modal="true" aria-labelledby="display-login-title"><span>智晟｜綻放</span><h2 id="display-login-title">啟用座位看板</h2><p>輸入工作人員密碼，開始同步現場報到。</p><form onSubmit={signIn}><label htmlFor="seat-display-key">工作人員密碼</label><input id="seat-display-key" type="password" autoComplete="current-password" value={key} onChange={(event) => setKey(event.target.value)} required autoFocus /><button className={styles.primaryButton} type="submit" disabled={signingIn}>{signingIn ? "正在準備看板…" : "啟用即時看板"}</button>{error && <p className={styles.warning} role="alert">{error}</p>}</form><button className={styles.previewButton} onClick={openPreview}>先預覽看板版面</button><small>顯示授權有效 12 小時</small></section></div>}
     </main>
   );
 }

@@ -1,9 +1,10 @@
 # Seat-status display
 
 `/seat-status` is a read-only attendance display for landscape (16:9) and
-portrait (9:16) screens. It shows seat labels, check-in status, total arrivals,
-waiting guests, arrival percentage, and the five most recently checked-in
-seats. It never sends names, phone numbers or portrait links to the display.
+portrait (9:16) screens. It shows the venue floor plan and seat check-in status.
+The **看板資訊** panel contains arrival totals, waiting guests and arrival
+percentage. Hovering, tapping or focusing a seat opens a guest card with name,
+role and check-in status. Phone numbers and portrait links are never sent.
 Check-in does not establish physical seat occupancy.
 
 ## Using the display
@@ -16,15 +17,32 @@ Firebase token never extends this deadline. A reload keeps the display session.
 
 The sign-in screen also offers **先預覽看板版面**. This creates clearly
 labelled demonstration seats in browser memory, without reading or writing
-event data. Use **返回即時看板** to leave preview mode.
+event data. Open **看板資訊 → 返回即時看板** to leave preview mode.
+`/seat-status?preview=1` opens the same labelled preview directly without
+authorization. Its fictional arrivals reproduce the reference's peach N/O rows.
 
-The first version is a naturally sorted seat index, not a physical floor plan.
-Section filters are derived from seat prefixes (for example A1/A2 → A). A
-ResizeObserver calculates how many readable seats fit; larger rosters page
-automatically every 12 seconds. Staff can pause rotation or change pages.
-Multiple guests with the same normalized seat are displayed as a warning,
-with arrived/assigned counts. Unassigned guests remain in attendance totals.
-Missing seats are not invented from gaps in numbering.
+The floor plan uses the supplied 418 × 745 reference coordinates: a stage,
+two VIP rows, A–O rows of twelve seats in three blocks of four, cross aisles
+after C and J, the left wall and door, tea area, two check-in stations, and
+N/O reserve rows. SVG scales the complete layout uniformly in both orientations;
+seat positions never reflow or paginate. White/pale-green alternating rows are
+venue styling; checked-in seats use #F8DDD3 plus a small check mark.
+The page has a warm cream/sage/peach backdrop and a persistent legend below
+the plan. Unassigned seats use a neutral dashed outline; duplicate assignments
+use an amber warning fill and border. VIP brick red is a venue marker, not an
+arrival state. Labels and symbols accompany each color.
+
+Guest cards remain open while the pointer is over the seat or card. Escape,
+the close button, or tapping outside dismisses them. Unassigned seats show an
+empty message; conflicting seats list their assigned guests. Preview cards use
+fictional names and never request real guest information.
+
+All 180 physical A–O seats remain visible even when not yet assigned. Duplicate
+assignments receive a warning border. Unassigned guests and roster seats outside
+the venue plan remain in attendance totals; out-of-plan labels are listed in
+**看板資訊** for staff to reconcile. VIP tiles preserve the reference's lettering
+as venue markers; roster-to-VIP identifiers have not been provided, so no VIP
+check-in mapping is inferred.
 
 ## Pipeline
 
@@ -74,6 +92,15 @@ the last confirmed board. If live setup fails or disconnects, the browser polls
 Requests time out, listeners and timers are disposed on unmount, and late
 responses are ignored. An outage retains the previous map with an offline
 indicator. Expiry prompts for staff authorization again.
+
+Guest details are loaded separately, after a 150 ms hover delay, from
+`GET /api/seat-status/guests?seat=A1&ids=...`. This endpoint requires the same
+unexpired display or admin session and uses private, no-store responses. It
+reads only the selected roster documents and fields (name, role, seat,
+checkedInAt), rechecking the current seat to exclude reassigned guests. The
+minimal Firestore feed and browser security rules stay unchanged. Switching or
+closing cards aborts pending lookups; failures offer a retry. Check-in changes
+update an open card from the live feed without another guest-details request.
 
 Firebase Auth is imported inside the optional-token fallback boundary so a
 module-load failure cannot prevent password validation or polling access.
@@ -128,6 +155,6 @@ consistency across roster mutations and resets, concurrent arrival/migration,
 imports across a paired-write chunk boundary, and Firestore rules rejecting
 private reads, browser writes, anonymous users and expired/unscoped sessions.
 
-The venue floor plan, display of guest names, and any reserved/blocked seats
-remain separate product decisions. The current projection contains no names,
-and no physical geometry is inferred from seat labels.
+The venue geometry is explicit in `src/lib/seat-floor-plan.ts`. Guest names
+remain excluded from the projection. VIP roster identifiers and rules for
+opening reserve seats remain separate product decisions.
