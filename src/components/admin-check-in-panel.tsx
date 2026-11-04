@@ -335,6 +335,11 @@ export function AdminCheckInPanel({ active }: { active: boolean }) {
         </span>
       </header>
 
+      <p className="admin-batch-hint">
+        <a href="/seat-status" target="_blank" rel="noopener noreferrer">開啟即時座位看板 ↗</a>
+        {" · 適用橫式與直式顯示器，僅顯示座位及報到狀態。"}
+      </p>
+
       <div className="admin-check-in-top">
         <button
           type="button"

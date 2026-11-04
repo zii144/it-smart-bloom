@@ -17,6 +17,7 @@ import {
   type ResetLog,
 } from "@/lib/data-reset-shared";
 import { deleteAllLocalSessions } from "@/lib/sessions";
+import { SEAT_STATUS_COLLECTION, SEAT_STATUS_META_COLLECTION, seatStatusData } from "@/lib/seat-status";
 
 export {
   RESET_CATEGORIES,
@@ -28,7 +29,7 @@ export {
 
 const CATEGORY_KEYS = new Set<string>(RESET_CATEGORIES.map((category) => category.key));
 const LOG_COLLECTION = "adminLog";
-const BATCH_SIZE = 400;
+const BATCH_SIZE = 200;
 
 function requireDb(): Firestore {
   const db = getDb();
@@ -136,11 +137,17 @@ async function deleteCollection(db: Firestore, name: string) {
 async function updateAllRoster(db: Firestore, changes: Record<string, unknown>) {
   const snapshot = await db.collection("roster").get();
   for (let start = 0; start < snapshot.docs.length; start += BATCH_SIZE) {
-    const batch = db.batch();
-    for (const doc of snapshot.docs.slice(start, start + BATCH_SIZE)) {
-      batch.update(doc.ref, changes);
-    }
-    await batch.commit();
+    const refs = snapshot.docs.slice(start, start + BATCH_SIZE).map((doc) => doc.ref);
+    await db.runTransaction(async (tx) => {
+      const current = await tx.getAll(...refs);
+      for (const doc of current) {
+        if (!doc.exists) continue;
+        tx.update(doc.ref, changes);
+        if ("checkedInAt" in changes) {
+          tx.set(db.collection(SEAT_STATUS_COLLECTION).doc(doc.id), seatStatusData({ ...doc.data(), ...changes }));
+        }
+      }
+    });
   }
   return snapshot.docs.length;
 }
@@ -171,7 +178,16 @@ export async function resetData(categories: ResetCategory[]): Promise<ResetLog> 
   }
 
   if (selected.has("roster")) {
-    counts.rosterEntries = await deleteCollection(db, "roster");
+    const roster = await db.collection("roster").get();
+    for (let start = 0; start < roster.docs.length; start += BATCH_SIZE) {
+      const batch = db.batch();
+      for (const doc of roster.docs.slice(start, start + BATCH_SIZE)) {
+        batch.delete(doc.ref);
+        batch.delete(db.collection(SEAT_STATUS_COLLECTION).doc(doc.id));
+      }
+      await batch.commit();
+    }
+    counts.rosterEntries = roster.size;
     await db.collection("rosterMeta").doc("lastImport").delete();
   } else {
     const changes: Record<string, unknown> = {};
@@ -205,10 +221,11 @@ export async function resetData(categories: ResetCategory[]): Promise<ResetLog> 
 
   if (selected.has("roster") || selected.has("checkIns")) {
     // A fresh start for arrivals: guests cannot check in until reopened.
-    await db
-      .collection("rosterMeta")
-      .doc("checkIn")
-      .set({ open: false, updatedAt: new Date().toISOString() });
+    const batch = db.batch();
+    const settings = { open: false, updatedAt: new Date().toISOString() };
+    batch.set(db.collection("rosterMeta").doc("checkIn"), settings);
+    batch.set(db.collection(SEAT_STATUS_META_COLLECTION).doc("checkIn"), settings);
+    await batch.commit();
   }
 
   if (selected.has("usage")) {
