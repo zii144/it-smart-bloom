@@ -2,9 +2,9 @@ import { randomBytes } from "node:crypto";
 import type {
   DocumentData,
   Firestore,
-  WriteBatch,
 } from "firebase-admin/firestore";
 import { getDb } from "@/lib/firebase-admin";
+import { SEAT_STATUS_COLLECTION, SEAT_STATUS_META_COLLECTION, seatStatusData } from "@/lib/seat-status";
 import {
   hasSubmittedPhoto,
   MAX_ROSTER_ROWS,
@@ -29,7 +29,7 @@ const LAST_IMPORT_DOC = "lastImport";
 const CHECK_IN_DOC = "checkIn";
 const SUBMISSIONS_DOC = "photoSubmissions";
 /** Firestore caps a batch at 500 writes; stay well under it. */
-const WRITE_BATCH_SIZE = 400;
+const WRITE_BATCH_SIZE = 200;
 
 export class RosterUnavailableError extends Error {
   constructor() {
@@ -145,6 +145,7 @@ export async function createRosterEntry(input: RosterInput) {
       if (!clash.empty) throw new RosterConflictError();
     }
     transaction.set(ref, data);
+    transaction.set(db.collection(SEAT_STATUS_COLLECTION).doc(ref.id), seatStatusData(data));
   });
 
   return toEntry(ref.id, data);
@@ -173,6 +174,7 @@ export async function updateRosterEntry(id: string, input: RosterInput) {
     // Keep event-day state (check-in, portrait) that the edit form never sends.
     const merged = { ...previous, ...data };
     transaction.set(ref, merged);
+    transaction.set(db.collection(SEAT_STATUS_COLLECTION).doc(id), seatStatusData(merged));
     return toEntry(id, merged);
   });
 }
@@ -180,9 +182,12 @@ export async function updateRosterEntry(id: string, input: RosterInput) {
 export async function deleteRosterEntry(id: string) {
   const db = requireDb();
   const ref = rosterCollection(db).doc(id);
-  const current = await ref.get();
-  if (!current.exists) throw new RosterNotFoundError();
-  await ref.delete();
+  await db.runTransaction(async (tx) => {
+    const current = await tx.get(ref);
+    if (!current.exists) throw new RosterNotFoundError();
+    tx.delete(ref);
+    tx.delete(db.collection(SEAT_STATUS_COLLECTION).doc(id));
+  });
 }
 
 /** Plans against the live collection without writing anything. */
@@ -203,26 +208,30 @@ export async function applyRosterImport(
   const plan = planRosterImport(parsed, await listRosterEntries());
   const now = new Date().toISOString();
 
-  const writes: ((batch: WriteBatch) => void)[] = [
-    ...plan.creates.map((row) => (batch: WriteBatch) => {
-      batch.set(rosterCollection(db).doc(), rosterEntryFromRow(row, now));
-    }),
-    ...plan.updates.map(
-      (update) => (batch: WriteBatch) => {
-        batch.update(rosterCollection(db).doc(update.id), {
-          ...update.patch,
-          updatedAt: now,
-        });
-      },
-    ),
+  // Read current arrivals inside each transaction, never from the import preview.
+  // Each entry needs two writes, so a chunk remains under Firestore's write cap.
+  const writes = [
+    ...plan.creates.map((row) => ({
+      ref: rosterCollection(db).doc(), data: rosterEntryFromRow(row, now), create: true,
+    })),
+    ...plan.updates.map((update) => ({
+      ref: rosterCollection(db).doc(update.id), data: { ...update.patch, updatedAt: now }, create: false,
+    })),
   ];
-
   for (let start = 0; start < writes.length; start += WRITE_BATCH_SIZE) {
-    const batch = db.batch();
-    for (const write of writes.slice(start, start + WRITE_BATCH_SIZE)) {
-      write(batch);
-    }
-    await batch.commit();
+    const chunk = writes.slice(start, start + WRITE_BATCH_SIZE);
+    await db.runTransaction(async (tx) => {
+      const updates = chunk.filter((write) => !write.create);
+      const current = updates.length ? await tx.getAll(...updates.map((write) => write.ref)) : [];
+      const previous = new Map(current.map((doc) => [doc.id, doc.data()]));
+      for (const write of chunk) {
+        if (!write.create && !previous.get(write.ref.id)) throw new RosterNotFoundError();
+        if (write.create) tx.set(write.ref, write.data);
+        else tx.update(write.ref, write.data);
+        tx.set(db.collection(SEAT_STATUS_COLLECTION).doc(write.ref.id),
+          seatStatusData({ ...previous.get(write.ref.id), ...write.data }));
+      }
+    });
   }
 
   const meta: RosterImportMeta = {
@@ -317,7 +326,10 @@ export async function readCheckInSettings(): Promise<CheckInSettings> {
 export async function setCheckInOpen(open: boolean): Promise<CheckInSettings> {
   const db = requireDb();
   const settings = { open, updatedAt: new Date().toISOString() };
-  await db.collection(META_COLLECTION).doc(CHECK_IN_DOC).set(settings);
+  const batch = db.batch();
+  batch.set(db.collection(META_COLLECTION).doc(CHECK_IN_DOC), settings);
+  batch.set(db.collection(SEAT_STATUS_META_COLLECTION).doc(CHECK_IN_DOC), settings);
+  await batch.commit();
   return settings;
 }
 
@@ -359,6 +371,10 @@ export async function checkInRosterEntry(
       ).toISOString();
     }
     if (Object.keys(changes).length) transaction.update(ref, changes);
+    // A repeat check-in may rotate a portrait token, but does not change this feed.
+    if (!alreadyCheckedIn) {
+      transaction.set(db.collection(SEAT_STATUS_COLLECTION).doc(id), seatStatusData({ ...entry, checkedInAt }));
+    }
 
     return {
       name: entry.name,
@@ -405,6 +421,7 @@ export async function undoRosterCheckIn(id: string) {
       portraitAccessToken: null,
       portraitAccessExpiresAt: null,
     });
+    transaction.set(db.collection(SEAT_STATUS_COLLECTION).doc(id), seatStatusData({ ...current.data(), checkedInAt: null }));
   });
 }
 

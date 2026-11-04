@@ -34,7 +34,7 @@ quality, output size, and the QR base URL.
 
 ### Firebase Emulator (local only)
 
-`npm run dev` starts the Firestore + Storage emulators and Next.js together.
+`npm run dev` starts the Firestore + Storage + Auth emulators and Next.js together.
 Development writes stay in the emulators and do not hit the live project.
 
 ```bash
@@ -177,6 +177,19 @@ entrance) with the same 姓名 + 手機 match as the booth. They get a joyful
 - Arrival (`checkedInAt`, `checkInSource`), the latest portrait
   (`portraitStatus`) and the portrait token are stored on the guest's
   `roster` entry. Imports and admin edits never overwrite them.
+
+### Live seat dashboard (`/seat-status`)
+
+The read-only seat board adapts to 16:9 and 9:16 displays, with arrival totals,
+seat status, recent arrivals, section filters and automatic pagination. Open it
+from **報到管理 → 開啟即時座位看板**, or visit `/seat-status` and enter the staff
+password. Names, phone numbers and portrait links are never included.
+
+Firestore pushes updates from a minimal display collection maintained alongside
+roster writes. A five-second polling fallback retains the last board on network
+failure. Staff authorization lasts 12 hours. A labelled preview is available
+without event data. See [setup, pipeline and production requirements](docs/seat-status.md),
+including Firebase Authentication initialization and deploying the new rules.
 
 ### Adjusted portraits (調整版作品)
 

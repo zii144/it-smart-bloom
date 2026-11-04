@@ -5,7 +5,7 @@
  */
 const { execSync } = require("node:child_process");
 
-const ports = [3059, 4000, 8080, 9199, 4400, 4500, 9150];
+const ports = [3059, 4000, 8080, 9099, 9199, 4400, 4500, 9150];
 
 function listeningPids(port) {
   const run = (command) =>

@@ -3,15 +3,15 @@
   "version": "0.1.0",
   "private": true,
   "scripts": {
-    "dev": "node scripts/free-dev-ports.cjs && firebase emulators:exec --project it-smart-bloom-tmp --only firestore,storage --ui \"next dev --port 3059\"",
+    "dev": "node scripts/free-dev-ports.cjs && firebase emulators:exec --project it-smart-bloom-tmp --only firestore,storage,auth --ui \"next dev --port 3059\"",
     "dev:next": "next dev --port 3059",
-    "emulators": "firebase emulators:start --project it-smart-bloom-tmp --only firestore,storage",
+    "emulators": "firebase emulators:start --project it-smart-bloom-tmp --only firestore,storage,auth",
     "build": "next build",
     "start": "next start --port 3059",
     "lint": "eslint",
     "test": "vitest run",
     "test:watch": "vitest",
-    "test:emulator": "firebase emulators:exec --config firebase.emulator-test.json --project it-smart-bloom-tmp --only firestore,storage \"vitest run .emulator.test --no-file-parallelism\"",
+    "test:emulator": "firebase emulators:exec --config firebase.emulator-test.json --project it-smart-bloom-tmp --only firestore,storage,auth \"vitest run .emulator.test --no-file-parallelism\"",
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {
