@@ -75,6 +75,16 @@ Requests time out, listeners and timers are disposed on unmount, and late
 responses are ignored. An outage retains the previous map with an offline
 indicator. Expiry prompts for staff authorization again.
 
+Firebase Auth is imported inside the optional-token fallback boundary so a
+module-load failure cannot prevent password validation or polling access.
+`package.json` overrides only the `jose` dependency used by `jwks-rsa` to
+CommonJS-compatible 5.10.0. Firebase Admin 14 pulls `jwks-rsa` 4, whose
+`require('jose')` fails with ESM-only jose 6 on runtimes where require(ESM)
+is disabled. Track [Firebase issue #3181](https://github.com/firebase/firebase-admin-node/issues/3181)
+before removing this compatibility override. A plain Node subprocess test with
+`--no-experimental-require-module` verifies Auth loading, custom-token signing,
+and JWKS public-key conversion with real dependencies and ephemeral test keys.
+
 The footer is the time of the last successful snapshot, not a continuously
 updated heartbeat. A quiet event need not receive new snapshots. Serverless
 instances do not hold long-running stream connections; Firestore delivers them
