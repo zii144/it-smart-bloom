@@ -1,4 +1,3 @@
-import { getAuth } from "firebase-admin/auth";
 import { NextResponse } from "next/server";
 import { getFirebaseApp } from "@/lib/firebase-admin";
 import { firebasePublicConfig } from "@/lib/firebase-public-config";
@@ -38,6 +37,8 @@ export async function POST(request: Request) {
     if (!app) throw new Error("Firebase is not configured");
     let customToken: string | null = null;
     try {
+      // Auth is optional for the polling fallback, including module-load failures.
+      const { getAuth } = await import("firebase-admin/auth");
       customToken = await getAuth(app).createCustomToken(`seat-display-${session.id}`, {
         seatStatusDisplay: true, seatStatusExpiresAt: session.expiresAt,
       });
