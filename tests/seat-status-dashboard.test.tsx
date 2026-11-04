@@ -1,5 +1,7 @@
 // @vitest-environment jsdom
 import { act, cleanup, fireEvent, render, within } from "@testing-library/react";
+import { hydrateRoot } from "react-dom/client";
+import { renderToString } from "react-dom/server";
 import { afterEach, beforeEach, expect, it, vi } from "vitest";
 import { SeatStatusDashboard } from "@/components/seat-status-dashboard";
 import type { SeatStatusSnapshot } from "@/lib/seat-status";
@@ -10,7 +12,6 @@ vi.mock("@/lib/seat-status-client", () => feed);
 
 let snapshot: SeatStatusSnapshot | null;
 let connection: SeatConnection;
-let resize: ResizeObserverCallback;
 
 beforeEach(() => {
   vi.useFakeTimers();
@@ -28,47 +29,60 @@ beforeEach(() => {
   connection = "live";
   feed.useSeatStatus.mockReset();
   feed.useSeatStatus.mockImplementation(() => ({ snapshot, connection }));
-  vi.stubGlobal("ResizeObserver", class {
-    constructor(callback: ResizeObserverCallback) { resize = callback; }
-    observe() {
-      // Four readable seats fit in this simulated display region.
-      resize([{ contentRect: { width: 144, height: 136 } }] as ResizeObserverEntry[], this as unknown as ResizeObserver);
-    }
-    disconnect() {}
-  });
+
 });
 
 afterEach(() => { cleanup(); vi.unstubAllGlobals(); vi.useRealTimers(); });
 
-it("rotates overflowing seats, supports pause/manual paging, and filters without changing totals", () => {
-  const view = render(<SeatStatusDashboard />);
-  expect(view.getByLabelText("A1，已報到")).toBeTruthy();
-  expect(view.queryByLabelText("B1，已報到")).toBeNull();
-  act(() => { vi.advanceTimersByTime(12_000); });
-  expect(view.getByLabelText("B1，已報到")).toBeTruthy();
-  fireEvent.click(view.getByRole("button", { name: "暫停輪播" }));
-  act(() => { vi.advanceTimersByTime(24_000); });
-  expect(view.getByLabelText("B1，已報到")).toBeTruthy();
-  fireEvent.click(view.getByRole("button", { name: "下一頁座位" }));
-  expect(view.getByLabelText("A1，已報到")).toBeTruthy();
-  fireEvent.change(view.getByRole("combobox", { name: "篩選座位區域" }), { target: { value: "B" } });
-  expect(view.getByLabelText("B1，已報到")).toBeTruthy();
-  expect(view.queryByLabelText("A1，已報到")).toBeNull();
-  expect(view.queryByRole("button", { name: "下一頁座位" })).toBeNull();
-  expect(view.getByRole("progressbar").getAttribute("aria-valuenow")).toBe("40");
+it("hydrates the server-rendered preview without rebuilding the SVG seat titles", async () => {
+  const container = document.createElement("div");
+  container.innerHTML = renderToString(<SeatStatusDashboard initialPreview />);
+  document.body.appendChild(container);
+  const originalMap = container.querySelector("svg");
+  const recoverableError = vi.fn();
+  let root: ReturnType<typeof hydrateRoot> | undefined;
+  try {
+    await act(async () => {
+      root = hydrateRoot(container, <SeatStatusDashboard initialPreview />, { onRecoverableError: recoverableError });
+    });
+    expect(recoverableError).not.toHaveBeenCalled();
+    expect(container.querySelector("svg")).toBe(originalMap);
+    expect(container.querySelector('[aria-label="A1，尚未報到"] title')?.textContent).toBe("A1・尚未報到");
+    expect(container.querySelector('[aria-label="N1，已報到"] title')?.textContent).toBe("N1・已報到・13:10");
+  } finally {
+    await act(async () => { root?.unmount(); });
+    container.remove();
+  }
 });
 
-it("reflows pagination after resize and clamps a page when the roster shrinks", () => {
+it("keeps all 180 seats in the reference positions, including aisles and venue markers", () => {
   const view = render(<SeatStatusDashboard />);
-  fireEvent.click(view.getByRole("button", { name: "下一頁座位" }));
-  snapshot = { ...snapshot!, entries: snapshot!.entries.slice(0, 2) };
-  view.rerender(<SeatStatusDashboard />);
-  expect(view.getByLabelText("A1，已報到")).toBeTruthy();
+  const map = view.getByRole("group", { name: /114及115年度/ });
+  expect(map.getAttribute("viewBox")).toBe("0 0 418 745");
+  expect(view.getByLabelText("A 至 O 排座位").querySelectorAll("g[aria-label] rect")).toHaveLength(180);
+  const rect = (label: string) => view.getByLabelText(label).querySelector("rect")!;
+  expect(rect("A1，已報到").getAttribute("x")).toBe("57");
+  expect(rect("A4，尚未報到").getAttribute("x")).toBe("129");
+  expect(rect("A5，尚未分配").getAttribute("x")).toBe("174");
+  expect(rect("A9，尚未分配").getAttribute("x")).toBe("289");
+  expect(rect("C1，尚未分配").getAttribute("y")).toBe("245");
+  expect(rect("D1，尚未分配").getAttribute("y")).toBe("294");
+  expect(rect("J1，尚未分配").getAttribute("y")).toBe("504");
+  expect(rect("K1，尚未分配").getAttribute("y")).toBe("554");
+  expect(rect("O12，尚未分配").getAttribute("x")).toBe("361");
+  expect(view.getByLabelText("VIP 第 1 排，場地標示").querySelectorAll("rect")).toHaveLength(12);
+  expect(view.getByLabelText("VIP 第 2 排，場地標示").querySelectorAll("rect")).toHaveLength(12);
+  expect(map.textContent).toContain("茶水區");
   expect(view.queryByRole("button", { name: "下一頁座位" })).toBeNull();
-  act(() => { resize([{ contentRect: { width: 72, height: 68 } }] as ResizeObserverEntry[], {} as ResizeObserver); });
-  expect(view.getByRole("button", { name: "下一頁座位" })).toBeTruthy();
-  expect(view.getByLabelText("A2，尚未報到")).toBeTruthy();
-  expect(view.queryByLabelText("A1，已報到")).toBeNull();
+});
+
+it("keeps out-of-plan assignments visible in diagnostics without inventing seats", () => {
+  snapshot = { ...snapshot!, entries: [...snapshot!.entries, { id: "outside", seat: "Z99", checkedInAt: null }] };
+  const view = render(<SeatStatusDashboard />);
+  expect(view.queryByLabelText("Z99，尚未報到")).toBeNull();
+  fireEvent.click(view.getByRole("button", { name: "看板資訊" }));
+  expect(view.getByText(/場地圖外的座位：Z99/)).toBeTruthy();
+  expect(view.getByRole("progressbar").getAttribute("aria-valuenow")).toBe("33");
 });
 
 it("keeps arrivals and last-sync time visible offline, and applies an undo on reconnect", () => {
@@ -77,13 +91,14 @@ it("keeps arrivals and last-sync time visible offline, and applies an undo on re
   view.rerender(<SeatStatusDashboard />);
   expect(view.getByRole("status").textContent).toContain("連線中斷");
   expect(view.getByLabelText("A1，已報到")).toBeTruthy();
-  expect(view.getByText("最後同步 13:02")).toBeTruthy();
+  fireEvent.click(view.getByRole("button", { name: "看板資訊" }));
+  expect(view.getByText(/最後同步 13:02/)).toBeTruthy();
   connection = "live";
   snapshot = { ...snapshot!, entries: snapshot!.entries.map((entry) => ({ ...entry, checkedInAt: null })) };
   view.rerender(<SeatStatusDashboard />);
   expect(view.getByLabelText("A1，尚未報到")).toBeTruthy();
   expect(view.getByRole("progressbar").getAttribute("aria-valuenow")).toBe("0");
-  expect(view.getByText("等候第一份抵達")).toBeTruthy();
+  expect(view.getByRole("status").textContent).toBe("即時連線");
 });
 
 it("shows assignment conflicts and counts guests without seats", () => {
@@ -97,7 +112,8 @@ it("shows assignment conflicts and counts guests without seats", () => {
   };
   const view = render(<SeatStatusDashboard />);
   expect(view.getByLabelText("A1，重複分配 2 位，已報到 1 位")).toBeTruthy();
-  expect(view.getByText("重複座位 1")).toBeTruthy();
+  fireEvent.click(view.getByRole("button", { name: "看板資訊" }));
+  expect(view.getByText(/重複座位 1/)).toBeTruthy();
   expect(view.getByText("1 位尚未分配座位（已計入總人數）")).toBeTruthy();
   expect(view.getByRole("progressbar").getAttribute("aria-valuenow")).toBe("67");
 });
@@ -112,9 +128,10 @@ it("keeps preview clearly labelled, sends no writes, and returns to authorizatio
   fireEvent.click(view.getByRole("button", { name: "先預覽看板版面" }));
   expect(view.queryByRole("dialog")).toBeNull();
   expect(view.getByRole("status").textContent).toBe("示範資料・非即時報到");
-  expect(view.getByLabelText("A1，已報到")).toBeTruthy();
+  expect(view.getByLabelText("N1，已報到")).toBeTruthy();
   expect(feed.useSeatStatus).toHaveBeenLastCalledWith(0, true);
   expect(fetchMock).not.toHaveBeenCalled();
+  fireEvent.click(view.getByRole("button", { name: "看板資訊" }));
   fireEvent.click(view.getByRole("button", { name: "返回即時看板" }));
   expect(view.getByRole("dialog")).toBeTruthy();
   expect(feed.useSeatStatus).toHaveBeenLastCalledWith(0, false);
@@ -149,4 +166,103 @@ it("reports unsupported fullscreen and lets the user dismiss it", async () => {
   expect(view.getByRole("alert").textContent).toContain("此瀏覽器不支援全螢幕");
   fireEvent.click(view.getByRole("button", { name: "關閉提示" }));
   expect(view.queryByRole("alert")).toBeNull();
+});
+
+it("opens the review link directly in clearly labelled preview without enrolling a display", () => {
+  snapshot = null;
+  connection = "auth-required";
+  const fetchMock = vi.fn();
+  vi.stubGlobal("fetch", fetchMock);
+  const view = render(<SeatStatusDashboard initialPreview />);
+  expect(view.queryByRole("dialog")).toBeNull();
+  expect(view.getByRole("status").textContent).toBe("示範資料・非即時報到");
+  expect(view.getByLabelText("A1，尚未報到")).toBeTruthy();
+  expect(view.getByLabelText("O12，已報到")).toBeTruthy();
+  expect(feed.useSeatStatus).toHaveBeenLastCalledWith(0, true);
+  expect(fetchMock).not.toHaveBeenCalled();
+});
+
+it("opens demo guest information on hover, keeps it open while reading, and dismisses with Escape", () => {
+  const fetchMock = vi.fn();
+  vi.stubGlobal("fetch", fetchMock);
+  const view = render(<SeatStatusDashboard initialPreview />);
+  const seat = view.getByLabelText("A1，尚未報到");
+  fireEvent.pointerEnter(seat);
+  const card = view.getByRole("dialog", { name: "A1 來賓資訊" });
+  expect(within(card).getByText("陳怡安")).toBeTruthy();
+  expect(within(card).getByText("示範資料")).toBeTruthy();
+  fireEvent.pointerLeave(seat);
+  fireEvent.pointerEnter(card);
+  act(() => vi.advanceTimersByTime(200));
+  expect(view.getByRole("dialog")).toBeTruthy();
+  fireEvent.keyDown(seat, { key: "Escape" });
+  expect(view.queryByRole("dialog")).toBeNull();
+  expect(fetchMock).not.toHaveBeenCalled();
+});
+
+it("loads guest details on keyboard focus and updates check-in status without refetching", async () => {
+  const fetchMock = vi.fn().mockResolvedValue(new Response(JSON.stringify({ guests: [
+    { id: "1", name: "測試來賓", role: "路老師", seat: "A1", checkedInAt: "2026-11-10T05:00:00Z" },
+  ] })));
+  vi.stubGlobal("fetch", fetchMock);
+  const view = render(<SeatStatusDashboard />);
+  fireEvent.focus(view.getByLabelText("A1，已報到"));
+  expect(view.getByText("正在讀取來賓資料…")).toBeTruthy();
+  await act(async () => { vi.advanceTimersByTime(150); });
+  const card = within(view.getByRole("dialog", { name: "A1 來賓資訊" }));
+  expect(card.getByText("測試來賓")).toBeTruthy();
+  expect(card.getByText("路老師")).toBeTruthy();
+  expect(card.getByText("✓ 已報到")).toBeTruthy();
+  expect(card.getByText("13:00")).toBeTruthy();
+  expect(fetchMock).toHaveBeenCalledWith("/api/seat-status/guests?seat=A1&ids=1", expect.objectContaining({ credentials: "same-origin", cache: "no-store" }));
+  snapshot = { ...snapshot!, entries: snapshot!.entries.map((entry) => ({ ...entry, checkedInAt: null })) };
+  view.rerender(<SeatStatusDashboard />);
+  expect(card.getByText("○ 尚未報到")).toBeTruthy();
+  expect(card.queryByText("13:00")).toBeNull();
+  expect(fetchMock).toHaveBeenCalledTimes(1);
+});
+
+it("supports tapping unassigned seats and dismissing outside without a guest request", async () => {
+  const fetchMock = vi.fn();
+  vi.stubGlobal("fetch", fetchMock);
+  const view = render(<SeatStatusDashboard />);
+  fireEvent.click(view.getByLabelText("A5，尚未分配"));
+  expect(view.getByText("此座位尚未分配來賓。")).toBeTruthy();
+  await act(async () => { vi.advanceTimersByTime(200); });
+  expect(fetchMock).not.toHaveBeenCalled();
+  fireEvent.pointerDown(view.getByLabelText("報到狀態圖例"));
+  expect(view.queryByRole("dialog")).toBeNull();
+});
+
+it("aborts a previous guest lookup when moving between seats and ignores its late response", async () => {
+  let resolveFirst!: (response: Response) => void;
+  const fetchMock = vi.fn().mockImplementationOnce(() => new Promise<Response>((resolve) => { resolveFirst = resolve; }))
+    .mockResolvedValueOnce(new Response(JSON.stringify({ guests: [{ id: "2", name: "第二位來賓", role: "", seat: "A2", checkedInAt: null }] })));
+  vi.stubGlobal("fetch", fetchMock);
+  const view = render(<SeatStatusDashboard />);
+  fireEvent.pointerEnter(view.getByLabelText("A1，已報到"));
+  await act(async () => { vi.advanceTimersByTime(150); });
+  const firstSignal = fetchMock.mock.calls[0][1].signal as AbortSignal;
+  fireEvent.pointerEnter(view.getByLabelText("A2，尚未報到"));
+  await act(async () => { vi.advanceTimersByTime(150); });
+  expect(firstSignal.aborted).toBe(true);
+  await act(async () => { resolveFirst(new Response(JSON.stringify({ guests: [{ id: "1", name: "過期資料" }] }))); });
+  expect(view.getByText("第二位來賓")).toBeTruthy();
+  expect(view.queryByText("過期資料")).toBeNull();
+  connection = "auth-required";
+  view.rerender(<SeatStatusDashboard />);
+  expect(view.queryByText("第二位來賓")).toBeNull();
+});
+
+it("offers a retry after a guest lookup failure", async () => {
+  const fetchMock = vi.fn().mockResolvedValueOnce(new Response("{}", { status: 503 }))
+    .mockResolvedValueOnce(new Response(JSON.stringify({ guests: [{ id: "1", name: "重試來賓", role: "", seat: "A1", checkedInAt: null }] })));
+  vi.stubGlobal("fetch", fetchMock);
+  const view = render(<SeatStatusDashboard />);
+  fireEvent.click(view.getByLabelText("A1，已報到"));
+  await act(async () => { vi.advanceTimersByTime(150); });
+  expect(view.getByRole("alert").textContent).toContain("暫時無法讀取");
+  fireEvent.click(view.getByRole("button", { name: "重試" }));
+  await act(async () => { vi.advanceTimersByTime(150); });
+  expect(view.getByText("重試來賓")).toBeTruthy();
 });

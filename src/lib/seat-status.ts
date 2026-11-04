@@ -1,7 +1,14 @@
-/** The entire browser-readable display contract. Never add private roster fields. */
+/** Minimal live display feed. Guest details are authorized separately on demand. */
 export const SEAT_STATUS_COLLECTION = "seatStatus";
 export const SEAT_STATUS_META_COLLECTION = "seatStatusMeta";
 export type SeatStatusEntry = { id: string; seat: string; checkedInAt: string | null };
+/** Fetched separately for an authorized seat hover; never part of the live feed. */
+export type SeatGuest = { id: string; name: string; role: string; seat: string; checkedInAt: string | null };
+export const MAX_SEAT_GUEST_LOOKUP = 100;
+
+export function normalizeSeatLabel(label: string) {
+  return label.normalize("NFKC").trim().replace(/\s+/g, " ").toUpperCase();
+}
 export type SeatStatusSettings = { open: boolean; updatedAt: string | null };
 export type SeatStatusSnapshot = {
   entries: SeatStatusEntry[];
@@ -30,7 +37,7 @@ export function buildSeatBoard(entries: SeatStatusEntry[]) {
   let unassigned = 0;
   for (const entry of entries) {
     if (entry.checkedInAt) arrived++;
-    const label = entry.seat.normalize("NFKC").trim().replace(/\s+/g, " ").toUpperCase();
+    const label = normalizeSeatLabel(entry.seat);
     if (!label) {
       unassigned++;
       continue;

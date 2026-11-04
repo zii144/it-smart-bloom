@@ -180,15 +180,17 @@ entrance) with the same 姓名 + 手機 match as the booth. They get a joyful
 
 ### Live seat dashboard (`/seat-status`)
 
-The read-only seat board adapts to 16:9 and 9:16 displays, with arrival totals,
-seat status, recent arrivals, section filters and automatic pagination. Open it
+The read-only seat board scales the reference venue floor plan to 16:9 and 9:16
+displays, preserving the stage, VIP area, aisles and all 180 A–O seats. Arrival
+totals and assignment warnings are available under **看板資訊**. Open it
 from **報到管理 → 開啟即時座位看板**, or visit `/seat-status` and enter the staff
-password. Names, phone numbers and portrait links are never included.
+password. Hover, tap or focus a seat to see its assigned guest's name, role and
+check-in status. Phone numbers and portrait links are never included.
 
 Firestore pushes updates from a minimal display collection maintained alongside
 roster writes. A five-second polling fallback retains the last board on network
 failure. Staff authorization lasts 12 hours. A labelled preview is available
-without event data. See [setup, pipeline and production requirements](docs/seat-status.md),
+without event data at `/seat-status?preview=1`. See [setup, pipeline and production requirements](docs/seat-status.md),
 including Firebase Authentication initialization and deploying the new rules.
 
 ### Adjusted portraits (調整版作品)
