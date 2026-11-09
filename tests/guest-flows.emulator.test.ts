@@ -7,10 +7,12 @@
  * every test wipes Firestore there.
  */
 import { beforeEach, describe, expect, it, vi } from "vitest";
+import { POST as adjustPortrait } from "@/app/api/admin30910/roster/[id]/portrait/route";
 import { POST as checkIn } from "@/app/api/check-in/route";
 import { GET as getPortrait } from "@/app/api/check-in/portrait/[token]/route";
 import { POST as verifyGuest } from "@/app/api/roster/verify/route";
 import { POST as createSessionRoute } from "@/app/api/sessions/route";
+import { createAdminToken } from "@/lib/admin-auth";
 import { firebasePublicConfig } from "@/lib/firebase-public-config";
 import { parseRosterInput } from "@/lib/roster";
 import {
@@ -21,7 +23,7 @@ import {
 } from "@/lib/roster-store";
 import { deleteSession, getSession } from "@/lib/sessions";
 import { loadSuccessView } from "@/lib/success-view";
-import { imageFile } from "./helpers";
+import { imageFile, realImage, routeContext } from "./helpers";
 
 const { afterMock, openAiEditMock } = vi.hoisted(() => ({
   afterMock: vi.fn(),
@@ -78,6 +80,44 @@ function submitPhoto(guest: { name: string; phone: string }) {
       body,
     }),
   );
+}
+
+/** Staff in the admin panel replacing what this guest receives (multipart, as in local dev). */
+async function uploadAdjusted(guestName: string, bytes: Buffer) {
+  process.env.ADMIN_DASHBOARD_SECRET ||= "emulator-test-secret";
+  const [entry] = (await listRosterEntries()).filter((e) => e.name === guestName);
+  const body = new FormData();
+  body.append("image", imageFile(bytes, "image/png", "adjusted.png"));
+  return adjustPortrait(
+    new Request(`http://x/api/admin30910/roster/${entry.id}/portrait`, {
+      method: "POST",
+      headers: { cookie: `bloom_admin=${createAdminToken()}` },
+      body,
+    }),
+    routeContext(entry.id),
+  );
+}
+
+/** Event day: check in, then fetch the full-quality portrait through the link handed out. */
+async function checkInAndDownload(guest: { name: string; phone: string }) {
+  const arrival = await checkIn(json("http://x/api/check-in", guest));
+  expect(arrival.status).toBe(200);
+  const payload = (await arrival.json()) as {
+    alreadyCheckedIn: boolean;
+    portrait: { status: string; url: string | null };
+  };
+  expect(payload.portrait.url).toMatch(/^\/api\/check-in\/portrait\/[A-Za-z0-9_-]{43}$/);
+  const token = payload.portrait.url!.split("/").pop()!;
+  const context = { params: Promise.resolve({ token }) };
+  const preview = await getPortrait(new Request(`http://x${payload.portrait.url}`), context);
+  expect(preview.status).toBe(200);
+  expect(preview.headers.get("Content-Type")).toBe("image/jpeg");
+  const original = await getPortrait(
+    new Request(`http://x${payload.portrait.url}?download=1`),
+    { params: Promise.resolve({ token }) },
+  );
+  expect(original.status).toBe(200);
+  return { payload, bytes: Buffer.from(await original.arrayBuffer()) };
 }
 
 /** Runs the background render the route queued with `after()`. */
@@ -181,6 +221,56 @@ describe.skipIf(emulatorHost !== TEST_EMULATOR_HOST)("event-day guest flows", ()
     await finishRendering();
     const [after] = (await listRosterEntries()).filter((e) => e.name === "測試甲");
     expect(after?.portraitSessionId).toBe(newestId);
+  });
+
+  it("case 1b: staff adjust the portrait → check-in hands over the adjusted file", async () => {
+    const created = await submitPhoto(GUEST_WITH_PHOTO);
+    const { id } = (await created.json()) as { id: string };
+    await finishRendering();
+    expect((await getSession(id)).status).toBe("complete");
+
+    const adjusted = await realImage("png", { width: 320, height: 320 });
+    expect((await uploadAdjusted(GUEST_WITH_PHOTO.name, adjusted)).status).toBe(200);
+    await deleteSession(id);
+
+    await setCheckInOpen(true);
+    const first = await checkInAndDownload(GUEST_WITH_PHOTO);
+    expect(first.payload).toMatchObject({ alreadyCheckedIn: false, portrait: { status: "complete" } });
+    expect(first.bytes.equals(adjusted)).toBe(true);
+
+    // Checking in again (another phone, a reload) hands the same file over.
+    const again = await checkInAndDownload(GUEST_WITH_PHOTO);
+    expect(again.payload.alreadyCheckedIn).toBe(true);
+    expect(again.bytes.equals(adjusted)).toBe(true);
+  });
+
+  it("case 1c: a failed render completed by a staff upload → check-in hands it over", async () => {
+    openAiEditMock.mockRejectedValueOnce(new Error("OpenAI: insufficient_quota"));
+    const body = new FormData();
+    body.set("image", imageFile());
+    body.set("name", GUEST_WITH_PHOTO.name);
+    body.set("phone", GUEST_WITH_PHOTO.phone);
+    body.set("imageOptions", JSON.stringify({ fakeGenerate: false }));
+    const created = await createSessionRoute(
+      new Request("https://it-smart-bloom.vercel.app/api/sessions", { method: "POST", body }),
+    );
+    const { id } = (await created.json()) as { id: string };
+    await finishRendering();
+    expect((await getSession(id)).status).toBe("failed");
+
+    // No regeneration: staff upload the finished image instead.
+    const adjusted = await realImage("png", { width: 320, height: 320 });
+    expect((await uploadAdjusted(GUEST_WITH_PHOTO.name, adjusted)).status).toBe(200);
+    const [entry] = (await listRosterEntries()).filter((e) => e.name === GUEST_WITH_PHOTO.name);
+    expect(entry.portraitStatus).toBe("complete");
+    expect(entry.portraitAdjustedAt).toBeTruthy();
+    expect(openAiEditMock).toHaveBeenCalledTimes(1);
+    await deleteSession(id);
+
+    await setCheckInOpen(true);
+    const { payload, bytes } = await checkInAndDownload(GUEST_WITH_PHOTO);
+    expect(payload.portrait.status).toBe("complete");
+    expect(bytes.equals(adjusted)).toBe(true);
   });
 
   it("a portrait that fails to generate gives the guest their submission back", async () => {
