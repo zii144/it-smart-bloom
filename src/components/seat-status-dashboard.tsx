@@ -125,7 +125,7 @@ export function SeatStatusDashboard({ initialPreview = false }: { initialPreview
       <section className={styles.mapFrame} aria-label="座位報到狀態" inert={needsAuth}>
         <svg className={styles.floorPlan} viewBox="0 0 418 745" preserveAspectRatio="xMidYMid meet" role="group" aria-labelledby="floor-plan-title floor-plan-description">
           <title id="floor-plan-title">114及115年度路老師頒獎授證典禮暨成果展座位圖</title>
-          <desc id="floor-plan-description">舞台前方兩排 VIP，A 至 O 排每排十二席，每四席一組，保留兩條縱向走道與 C、J 排後方橫向走道。左側有茶水區、門口及兩處報到區，後方 N、O 排為預備座。桃色代表已報到。</desc>
+          <desc id="floor-plan-description">舞台前方兩排 VIP，A 至 O 排每排十二席，每四席一組，保留兩條縱向走道與 C、J 排後方橫向走道。左側有茶水區、兩處門口及兩處報到區，後方 N、O 排為預備座。桃色代表已報到。</desc>
           <rect width="418" height="745" className={styles.paper} />
           <text x="26" y="26" className={styles.mapTitle} textLength="321" lengthAdjust="spacingAndGlyphs">114及115年度路老師頒獎授證典禮暨成果展</text>
           <text x="347" y="26" className={`${styles.mapTitle} ${styles.redText}`} textLength="45" lengthAdjust="spacingAndGlyphs">座位圖</text>
@@ -168,8 +168,8 @@ export function SeatStatusDashboard({ initialPreview = false }: { initialPreview
               <text x="397" y={row.y + 17} textAnchor="middle" className={`${styles.rowNumber} ${rowIndex >= 13 ? styles.reservedNumber : ""}`}>{rowIndex + 3}</text>
             </g>)}
           </g>
-          <path d="M31.5 45V522M31.5 554V741" className={styles.wall} />
-          <path d="M31.5 522A16 16 0 0 0 15.5 538H31.5M31.5 538A16 16 0 0 0 15.5 554H31.5" className={styles.doors} />
+          <path d="M31.5 45V522M31.5 554V630.5M31.5 662.5V741" className={styles.wall} />
+          <path d="M31.5 522H15.5A16 16 0 0 0 31.5 538A16 16 0 0 0 15.5 554H31.5M31.5 630.5H15.5A16 16 0 0 0 31.5 646.5A16 16 0 0 0 15.5 662.5H31.5" className={styles.doors} />
           <rect x="37" y="330" width="15" height="131" rx="1" className={styles.stage} />
           <VerticalLabel text="茶水區" x={44.5} y={385} className={styles.teaText} />
           <rect x="9" y="568" width="17" height="41" rx="1" className={styles.vip} />
