@@ -185,7 +185,6 @@ export function SeatStatusDashboard({ initialPreview = false }: { initialPreview
           <li><span className={`${styles.statusSwatch} ${styles.arrivedSwatch}`} aria-hidden="true">✓</span><span>已報到</span></li>
           <li><span className={`${styles.statusSwatch} ${styles.waitingSwatch}`} aria-hidden="true">○</span><span>未報到</span></li>
           <li><span className={`${styles.statusSwatch} ${styles.unassignedSwatch}`} aria-hidden="true">–</span><span>未分配</span></li>
-          <li><span className={`${styles.statusSwatch} ${styles.conflictSwatch}`} aria-hidden="true">!</span><span>重複座位</span></li>
         </ul>
         <p>白色／淺綠色皆為未報到；磚紅色為 VIP 區標示。</p>
       </section>

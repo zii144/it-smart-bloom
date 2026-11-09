@@ -94,7 +94,6 @@
 .arrivedSwatch { background: var(--plan-arrived); color: var(--plan-arrived-ink); border-color: #e9cbbf; }
 .waitingSwatch { background: linear-gradient(90deg, #fefcf3 50%, var(--plan-alternate) 50%); color: var(--plan-ink); }
 .unassignedSwatch { background: var(--plan-paper); border: 1px dashed var(--plan-unassigned-border); color: var(--plan-muted); }
-.conflictSwatch { background: var(--plan-warning-fill); border: 1px dashed var(--plan-warning); color: var(--plan-warning); font-weight: 700; }
 .notice { position: fixed; bottom: 60px; left: 50%; transform: translateX(-50%); z-index: 4; width: min(440px, calc(100vw - 32px)); display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 12px 16px; background: #fff0cf; color: var(--plan-warning); border: 1px solid #c59443; border-radius: 4px; font-size: 13px; }
 .notice button { border: 0; background: transparent; }
 .loginOverlay { position: fixed; inset: 0; z-index: 5; display: grid; place-items: center; padding: 24px; overflow: auto; background: #1d3d3447; backdrop-filter: blur(6px); }
