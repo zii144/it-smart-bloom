@@ -499,6 +499,24 @@ export async function readRosterPortraitSession(id: string): Promise<string | nu
 }
 
 /**
+ * The session an admin's adjusted image goes to: the finished one, or — as a
+ * remedy that needs no OpenAI call — the latest one whose render failed, which
+ * the adjusted image then completes. Null when the guest never submitted a photo.
+ */
+export async function readRosterAdjustableSession(
+  id: string,
+): Promise<{ sessionId: string; failed: boolean } | null> {
+  const db = requireDb();
+  const doc = await rosterCollection(db).doc(id).get();
+  if (!doc.exists) throw new RosterNotFoundError();
+  const entry = doc.data() as RosterEntryData;
+  if (!entry.portraitSessionId) return null;
+  if (entry.portraitStatus === "complete") return { sessionId: entry.portraitSessionId, failed: false };
+  if (entry.portraitStatus === "failed") return { sessionId: entry.portraitSessionId, failed: true };
+  return null;
+}
+
+/**
  * The guest's latest booth session when its render failed, for staff to run
  * it again from the stored photo. Null when there is nothing failed to retry.
  */

@@ -7,7 +7,7 @@ import {
 } from "@/lib/portrait-limits";
 import { RosterInputError } from "@/lib/roster";
 import { rosterJson } from "@/lib/roster-http";
-import { portraitErrorResponse, portraitSessionFor } from "@/lib/portrait-http";
+import { adjustableSessionFor, portraitErrorResponse } from "@/lib/portrait-http";
 
 export const runtime = "nodejs";
 
@@ -42,7 +42,7 @@ export async function POST(
       throw new RosterInputError(`圖片必須小於 ${MAX_ADJUSTED_BYTES / 1024 / 1024} MB。`);
     }
 
-    const sessionId = await portraitSessionFor(id);
+    const { sessionId } = await adjustableSessionFor(id);
     const target = await createFinalUploadTarget(sessionId, body.mime);
     if (!target) {
       return rosterJson({ mode: "direct", maxBytes: FUNCTION_BODY_SAFE_BYTES });

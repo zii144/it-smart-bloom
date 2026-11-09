@@ -587,6 +587,16 @@ export function AdminCheckInPanel({ active }: { active: boolean }) {
                       {busyId === entry.id ? "生成中…" : "重新生成"}
                     </button>
                   ))}
+                {entry.portraitStatus === "failed" && entry.portraitSessionId && (
+                  <button
+                    type="button"
+                    disabled={busyId === entry.id || Boolean(regenerateProgress)}
+                    title="不重新生成，直接上傳修好的圖作為這位來賓的作品"
+                    onClick={() => chooseAdjustedImage(entry)}
+                  >
+                    上傳調整版補上
+                  </button>
+                )}
                 {hasSubmittedPhoto(entry) &&
                   (confirmResubmitId === entry.id ? (
                     <>

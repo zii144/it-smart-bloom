@@ -15,7 +15,12 @@ import {
 import { compressPreview, PREVIEW_MIME, PreviewError } from "@/lib/portrait-preview";
 import { recordRosterPortrait } from "@/lib/roster-store";
 import { hasExpectedSignature } from "@/lib/image-signature";
-import type { ImageSession, SessionStatus } from "@/lib/sessions";
+import {
+  getSession,
+  writeResultImage,
+  type ImageSession,
+  type SessionStatus,
+} from "@/lib/sessions";
 
 /**
  * An admin's fine-tuned replacement for the generated portrait. Each upload is
@@ -411,6 +416,24 @@ export async function storeFinalResult(
     throw new FinalResultInputError("請使用 JPEG、PNG 或 WebP 格式的圖片。");
   }
   return acceptFinalResult(sessionId, { bytes: image.bytes, mime: image.mime });
+}
+
+/**
+ * Remedy for a render that failed: the admin's accepted upload also becomes
+ * the session's result, so the session counts as complete and check-in hands
+ * the portrait over without another OpenAI call. A no-op once complete, so a
+ * retried upload is safe. The roster mirror here is best effort, so the
+ * caller records the completion on the roster itself.
+ */
+export async function completeSessionWithFinal(sessionId: string, finalResult: FinalResult) {
+  if ((await getSession(sessionId)).status === "complete") return;
+  const image = await readArchiveImage(finalResult.path);
+  if (!image) {
+    throw new FinalResultUnavailableError("無法保存調整後的作品，請稍後再試。");
+  }
+  const result = { bytes: image.bytes, mime: finalResult.mime };
+  const finished = await writeResultImage(sessionId, result.bytes, result.mime);
+  await archiveSessionStatus(finished, result);
 }
 
 export type FinalUploadTarget = {
