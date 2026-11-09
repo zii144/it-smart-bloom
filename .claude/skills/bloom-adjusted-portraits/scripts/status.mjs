@@ -10,6 +10,7 @@ import {
   BASE_URL,
   guestLabel,
   hasFailedPortrait,
+  hasNoPortrait,
   hasPortrait,
   loadRoster,
   loadSubmissions,
@@ -27,6 +28,8 @@ await main(async (args) => {
     (entry) => entry.portraitStatus === "ready" || entry.portraitStatus === "generating",
   );
   const arrived = entries.filter((entry) => entry.checkedInAt);
+  // Not a blocker: absent guests never send one, and check-in still works for them.
+  const noPhoto = entries.filter(hasNoPortrait);
 
   const blockers = [];
   if (failed.length) blockers.push(`${failed.length} 位生成失敗，先重新生成或直接上傳調整版補上`);
@@ -47,6 +50,8 @@ await main(async (args) => {
           failed: failed.map(guestLabel),
           failedFileNames: failed.map((entry) => originalFilename(entry, "jpg")),
           painting: painting.map(guestLabel),
+          noPhoto: noPhoto.map(guestLabel),
+          noPhotoFileNames: noPhoto.map((entry) => originalFilename(entry, "jpg")),
           checkInOpen: checkIn.open,
           photoSubmissionsOpen: submissions.open,
           checkedIn: arrived.length,
@@ -71,6 +76,10 @@ await main(async (args) => {
     );
   }
   if (painting.length) console.log(`\n生成中（${painting.length}）：${painting.map(guestLabel).join("、")}`);
+  if (noPhoto.length) {
+    console.log(`\n沒有上傳照片（${noPhoto.length}，簽到時只記錄出席）：${noPhoto.map(guestLabel).join("、")}`);
+    console.log("要給其中某位作品，可直接上傳一張圖建立作品，檔名用 status.mjs --json 的 noPhotoFileNames。");
+  }
   if (unadjusted.length) console.log(`\n未調整（${unadjusted.length}）：${unadjusted.map(guestLabel).join("、")}`);
   console.log(
     readyToOpen

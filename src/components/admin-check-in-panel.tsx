@@ -597,6 +597,16 @@ export function AdminCheckInPanel({ active }: { active: boolean }) {
                     上傳調整版補上
                   </button>
                 )}
+                {!entry.portraitSessionId && (
+                  <button
+                    type="button"
+                    disabled={busyId === entry.id}
+                    title="來賓沒有上傳照片；直接上傳一張圖作為這位來賓的作品"
+                    onClick={() => chooseAdjustedImage(entry)}
+                  >
+                    上傳作品
+                  </button>
+                )}
                 {hasSubmittedPhoto(entry) &&
                   (confirmResubmitId === entry.id ? (
                     <>

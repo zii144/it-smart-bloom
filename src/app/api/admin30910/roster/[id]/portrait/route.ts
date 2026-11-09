@@ -2,13 +2,15 @@ import { adminRouteGuard } from "@/lib/admin-route";
 import {
   clearFinalResult,
   completeSessionWithFinal,
+  createSessionFromFinal,
   finalizeUploadedFinalResult,
   storeFinalResult,
+  unclaimedSessionFromUpload,
 } from "@/lib/portrait-archive";
 import { RosterInputError } from "@/lib/roster";
 import { rosterJson } from "@/lib/roster-http";
 import { recordRosterPortrait, recordRosterPortraitAdjusted } from "@/lib/roster-store";
-import { readUploadedImage } from "@/lib/sessions";
+import { newSessionId, readUploadedImage } from "@/lib/sessions";
 import {
   adjustableSessionFor,
   portraitErrorResponse,
@@ -30,7 +32,8 @@ export const maxDuration = 120;
  *
  * Guests who already checked in see it on their next load; their link stays.
  * For a guest whose render failed, the upload completes the portrait instead
- * of a regeneration: check-in then hands this file over.
+ * of a regeneration; for a guest who never sent a photo, it becomes a new
+ * portrait. Either way check-in then hands this file over.
  */
 export async function POST(
   request: Request,
@@ -41,13 +44,15 @@ export async function POST(
 
   try {
     const { id } = await params;
-    const { sessionId, failed } = await adjustableSessionFor(id);
+    const target = await adjustableSessionFor(id);
+    let sessionId = target.sessionId;
 
     let finalResult;
     if (request.headers.get("content-type")?.includes("application/json")) {
       const body = (await request.json().catch(() => null)) as {
         objectPath?: unknown;
       } | null;
+      sessionId ??= await unclaimedSessionFromUpload(body?.objectPath);
       finalResult = await finalizeUploadedFinalResult(sessionId, body?.objectPath);
     } else {
       const formData = await request.formData().catch(() => null);
@@ -56,10 +61,14 @@ export async function POST(
         throw new RosterInputError("請選擇調整後的圖片。");
       }
       const bytes = await readUploadedImage(image);
+      sessionId ??= newSessionId();
       finalResult = await storeFinalResult(sessionId, { bytes, mime: image.type });
     }
 
-    if (failed) {
+    if (!target.sessionId) {
+      await createSessionFromFinal(sessionId, id, finalResult);
+      await recordRosterPortrait(id, sessionId, "complete", { isNewSession: true });
+    } else if (target.failed) {
       await completeSessionWithFinal(sessionId, finalResult);
       await recordRosterPortrait(id, sessionId, "complete", { isNewSession: false });
     }

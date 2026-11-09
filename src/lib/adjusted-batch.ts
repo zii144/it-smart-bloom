@@ -23,6 +23,11 @@ export function hasFailedPortrait(entry: PortraitGuest) {
   return entry.portraitStatus === "failed" && Boolean(entry.portraitSessionId);
 }
 
+/** Never sent a photo: an uploaded image becomes their portrait. */
+export function hasNoPortrait(entry: PortraitGuest) {
+  return !entry.portraitSessionId;
+}
+
 /** Keeps file names portable across Windows, macOS and retouching apps. */
 function filePart(value: string) {
   return value.normalize("NFKC").replace(/[\\/:*?"<>|\s_]+/g, "").slice(0, 40);
@@ -56,6 +61,8 @@ export type UploadPlanRow = {
   replaces: boolean;
   /** The guest's render failed; this file becomes their portrait. */
   completesFailed: boolean;
+  /** The guest never sent a photo; this file becomes their portrait. */
+  createsPortrait: boolean;
 };
 
 /** Candidate seat or name strings in a hand-made file name, most specific first. */
@@ -107,6 +114,7 @@ export function planAdjustedUploads(
       problem: null,
       replaces: false,
       completesFailed: false,
+      createsPortrait: false,
     };
 
     const byId = guests.find((guest) => guest.id.length >= 8 && base.includes(guest.id));
@@ -142,14 +150,16 @@ export function planAdjustedUploads(
 
     if (!row.guest) {
       row.problem = "對不到來賓：檔名請保留下載時的名稱，或用座位、姓名命名（例如 L5.jpg）。";
-    } else if (!hasPortrait(row.guest) && !hasFailedPortrait(row.guest)) {
-      row.problem = "這位來賓還沒有作品可調整（沒有上傳照片，或仍在生成中）。";
+    } else if (!hasPortrait(row.guest) && !hasFailedPortrait(row.guest) && !hasNoPortrait(row.guest)) {
+      row.problem = "這位來賓的作品仍在生成中，請稍後再上傳。";
     } else if (!isAdjustedMime(file.type)) {
       row.problem = "格式不支援，請匯出成 JPEG、PNG 或 WebP（不支援 HEIC、PSD）。";
     } else if (file.size <= 0 || file.size > MAX_ADJUSTED_BYTES) {
       row.problem = `檔案必須小於 ${MAX_ADJUSTED_BYTES / 1024 / 1024} MB。`;
     } else if (hasFailedPortrait(row.guest)) {
       row.completesFailed = true;
+    } else if (hasNoPortrait(row.guest)) {
+      row.createsPortrait = true;
     } else {
       row.replaces = Boolean(row.guest.portraitAdjustedAt);
     }

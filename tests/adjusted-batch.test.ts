@@ -92,11 +92,27 @@ describe("planAdjustedUploads", () => {
     expect(row).toMatchObject({ guest: wang, matchedBy: "seat" });
   });
 
-  it("refuses files it cannot place, or guests without a portrait", () => {
-    const rows = planAdjustedUploads([png("portrait.png"), png("Z9.png")], guests);
+  it("refuses files it cannot place, or guests whose render is in progress", () => {
+    const painting = guest("paintingAbCdEfGh0009", "P9", "生成中", { portraitStatus: "generating" });
+    const rows = planAdjustedUploads(
+      [png("portrait.png"), png("P9.png")],
+      [...guests, painting],
+    );
     expect(rows[0].problem).toContain("對不到來賓");
-    expect(rows[1]).toMatchObject({ guest: noPortrait });
-    expect(rows[1].problem).toContain("還沒有作品可調整");
+    expect(rows[1]).toMatchObject({ guest: painting, createsPortrait: false });
+    expect(rows[1].problem).toContain("仍在生成中");
+  });
+
+  it("creates a portrait for a guest who never sent a photo", () => {
+    const [row] = planAdjustedUploads([png("Z9.png")], guests);
+    expect(row).toMatchObject({
+      guest: noPortrait,
+      matchedBy: "seat",
+      problem: null,
+      createsPortrait: true,
+      completesFailed: false,
+      replaces: false,
+    });
   });
 
   it("refuses HEIC, PSD, empty and oversized files", () => {

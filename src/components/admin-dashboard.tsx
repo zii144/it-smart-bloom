@@ -191,6 +191,9 @@ function sessionGuestLabel(
   rosterNames: ReadonlyMap<string, string> | null,
 ) {
   if (row.source === "admin-batch") return "批次生成";
+  if (row.source === "admin-upload" && rosterNames?.has(row.rosterEntryId ?? "")) {
+    return `名單：${rosterNames.get(row.rosterEntryId ?? "")}（後台上傳）`;
+  }
   if (row.rosterEntryId) {
     if (!rosterNames) return "名單比對成功";
     return rosterNames.has(row.rosterEntryId)

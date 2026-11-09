@@ -23,13 +23,15 @@ export async function portraitSessionFor(id: string) {
 }
 
 /**
- * Where an uploaded adjustment goes: the finished portrait, or a failed one
- * that the upload completes (`failed: true`) so no regeneration is needed.
+ * Where an uploaded adjustment goes: the finished portrait, a failed one that
+ * the upload completes (`failed: true`) so no regeneration is needed, or —
+ * for a guest who never sent a photo — no session yet (`sessionId: null`):
+ * the upload then becomes their portrait.
  */
 export async function adjustableSessionFor(id: string) {
   if (!ROSTER_ID_PATTERN.test(id)) throw new RosterNotFoundError();
   const target = await readRosterAdjustableSession(id);
-  if (!target) throw new RosterInputError("這位來賓還沒有作品可調整（沒有上傳照片，或仍在生成中）。");
+  if (!target) throw new RosterInputError("這位來賓的作品仍在生成中，請稍後再上傳。");
   return target;
 }
 
