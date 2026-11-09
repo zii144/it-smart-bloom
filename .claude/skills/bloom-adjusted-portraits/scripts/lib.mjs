@@ -78,6 +78,11 @@ export function hasPortrait(entry) {
   return entry.portraitStatus === "complete" && Boolean(entry.portraitSessionId);
 }
 
+/** A render that failed: an uploaded adjustment completes it, no regeneration needed. */
+export function hasFailedPortrait(entry) {
+  return entry.portraitStatus === "failed" && Boolean(entry.portraitSessionId);
+}
+
 function filePart(value) {
   return value.normalize("NFKC").replace(/[\\/:*?"<>|\s_]+/g, "").slice(0, 40);
 }
@@ -129,7 +134,7 @@ export function planAdjustedUploads(files, guests) {
 
   const rows = files.map((file) => {
     const base = file.name.replace(/\.[^.]+$/, "");
-    const row = { fileName: file.name, guest: null, matchedBy: null, problem: null, replaces: false };
+    const row = { fileName: file.name, guest: null, matchedBy: null, problem: null, replaces: false, completesFailed: false };
 
     const byId = guests.find((guest) => guest.id.length >= 8 && base.includes(guest.id));
     if (byId) {
@@ -163,12 +168,14 @@ export function planAdjustedUploads(files, guests) {
 
     if (!row.guest) {
       row.problem = "對不到來賓：檔名請保留下載時的名稱，或用座位、姓名命名（例如 L5.jpg）。";
-    } else if (!hasPortrait(row.guest)) {
-      row.problem = "這位來賓沒有完成的作品，不能上傳調整版。";
+    } else if (!hasPortrait(row.guest) && !hasFailedPortrait(row.guest)) {
+      row.problem = "這位來賓還沒有作品可調整（沒有上傳照片，或仍在生成中）。";
     } else if (!ADJUSTED_MIME_TYPES.has(file.type)) {
       row.problem = "格式不支援，請匯出成 JPEG、PNG 或 WebP（不支援 HEIC、PSD）。";
     } else if (file.size <= 0 || file.size > MAX_ADJUSTED_BYTES) {
       row.problem = `檔案必須小於 ${MAX_ADJUSTED_BYTES / 1024 / 1024} MB。`;
+    } else if (hasFailedPortrait(row.guest)) {
+      row.completesFailed = true;
     } else {
       row.replaces = Boolean(row.guest.portraitAdjustedAt);
     }
