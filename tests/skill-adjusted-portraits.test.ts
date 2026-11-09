@@ -47,9 +47,12 @@ const guests = [
   guest("noPortraitAbCdEfGh06", "Z9", "沒作品", { portraitStatus: null, portraitSessionId: null }),
   guest("noSeatGuestAbCdEf007", "", "無座位人"),
   guest("failedGuestAbCdEf008", "F9", "生成失敗", { portraitStatus: "failed" }),
+  guest("paintingAbCdEfGh0009", "P9", "生成中", { portraitStatus: "generating" }),
 ];
 
 const names = [
+  "P9.jpg",
+  "Z9.jpg",
   "L5_王小明_YHvDHMZvAbCdEfGh1234.png",
   "E5_林美麗_zplL1TxNAbCdEfGh5678 (edited).jpg",
   "L5.jpg",
@@ -89,6 +92,7 @@ describe("agent skill matches the admin panel", () => {
         problem: row.problem,
         replaces: row.replaces,
         completesFailed: row.completesFailed,
+        createsPortrait: row.createsPortrait,
       }));
     expect(simplify(fromSkill)).toEqual(simplify(fromPanel));
     // Sanity: the fixture really exercises id, seat, name, refusals and duplicates.

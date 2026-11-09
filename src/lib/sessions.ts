@@ -30,8 +30,11 @@ const SUPPORTED_IMAGE_TYPES = new Set([
 
 export type SessionStatus = "ready" | "generating" | "complete" | "failed";
 
-/** Absent means the booth: only the admin batch tool tags itself. */
-export type SessionSource = "booth" | "admin-batch";
+/**
+ * Absent means the booth. `admin-batch`: the admin batch generator.
+ * `admin-upload`: a guest who never sent a photo, given an admin's image.
+ */
+export type SessionSource = "booth" | "admin-batch" | "admin-upload";
 
 export type ImageSession = {
   id: string;
@@ -352,6 +355,48 @@ export async function readUploadedImage(file: File) {
   return bytes;
 }
 
+export function newSessionId() {
+  return randomBytes(24).toString("base64url");
+}
+
+export function isSessionId(id: unknown): id is string {
+  return typeof id === "string" && SESSION_ID_PATTERN.test(id);
+}
+
+/**
+ * A session that starts complete: for a guest who never sent a photo, the
+ * admin's image is both its input and its result. Nothing is generated.
+ */
+export async function createCompleteSession(
+  id: string,
+  image: { bytes: Buffer; mime: string },
+  link: { rosterEntryId: string },
+) {
+  const now = new Date().toISOString();
+  const session: ImageSession = {
+    id,
+    createdAt: now,
+    expiresAt: new Date(Date.parse(now) + SESSION_TTL_MS).toISOString(),
+    updatedAt: now,
+    status: "complete",
+    inputMime: image.mime,
+    resultMime: image.mime,
+    resultAt: now,
+    source: "admin-upload",
+    rosterEntryId: link.rosterEntryId,
+  };
+
+  try {
+    await mkdir(sessionDirectory(id), { recursive: true });
+    await writeFile(inputPath(id), image.bytes);
+    await writeFile(outputPath(id), image.bytes);
+  } catch (error) {
+    console.warn(`[sessions] could not cache images for ${id} locally:`, error);
+  }
+  await writeMetadata(session);
+  return session;
+}
+
 export async function createSession(
   file: File,
   generationOptions?: ImageGenerationOptions,
@@ -360,7 +405,7 @@ export async function createSession(
 ) {
   const bytes = await readUploadedImage(file);
 
-  const id = randomBytes(24).toString("base64url");
+  const id = newSessionId();
   const createdAt = new Date();
   const session: ImageSession = {
     id,

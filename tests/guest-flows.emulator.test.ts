@@ -273,6 +273,32 @@ describe.skipIf(emulatorHost !== TEST_EMULATOR_HOST)("event-day guest flows", ()
     expect(bytes.equals(adjusted)).toBe(true);
   });
 
+  it("case 1d: a guest who never sent a photo gets a staff upload at check-in", async () => {
+    const renders = openAiEditMock.mock.calls.length;
+    const adjusted = await realImage("png", { width: 320, height: 320 });
+    expect((await uploadAdjusted(GUEST_WITH_PHOTO.name, adjusted)).status).toBe(200);
+    const [entry] = (await listRosterEntries()).filter((e) => e.name === GUEST_WITH_PHOTO.name);
+    expect(entry).toMatchObject({ portraitStatus: "complete" });
+    expect(entry.portraitSessionId).toMatch(/^[A-Za-z0-9_-]{32}$/);
+    expect(entry.portraitAdjustedAt).toBeTruthy();
+    expect(openAiEditMock.mock.calls.length).toBe(renders);
+    // Another server instance: only the archive has it.
+    await deleteSession(entry.portraitSessionId!);
+
+    await setCheckInOpen(true);
+    const { payload, bytes } = await checkInAndDownload(GUEST_WITH_PHOTO);
+    expect(payload.portrait.status).toBe("complete");
+    expect(bytes.equals(adjusted)).toBe(true);
+
+    // A second upload replaces it on the same portrait, not a new one.
+    const again = await realImage("png", { width: 300, height: 300 });
+    expect((await uploadAdjusted(GUEST_WITH_PHOTO.name, again)).status).toBe(200);
+    const [after] = (await listRosterEntries()).filter((e) => e.name === GUEST_WITH_PHOTO.name);
+    expect(after.portraitSessionId).toBe(entry.portraitSessionId);
+    const repeat = await checkInAndDownload(GUEST_WITH_PHOTO);
+    expect(repeat.bytes.equals(again)).toBe(true);
+  });
+
   it("a portrait that fails to generate gives the guest their submission back", async () => {
     // What production hit: OpenAI rejects the key mid-render.
     openAiEditMock.mockRejectedValueOnce(

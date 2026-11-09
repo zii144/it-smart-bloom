@@ -16,7 +16,9 @@ import { compressPreview, PREVIEW_MIME, PreviewError } from "@/lib/portrait-prev
 import { recordRosterPortrait } from "@/lib/roster-store";
 import { hasExpectedSignature } from "@/lib/image-signature";
 import {
+  createCompleteSession,
   getSession,
+  isSessionId,
   writeResultImage,
   type ImageSession,
   type SessionStatus,
@@ -434,6 +436,40 @@ export async function completeSessionWithFinal(sessionId: string, finalResult: F
   const result = { bytes: image.bytes, mime: finalResult.mime };
   const finished = await writeResultImage(sessionId, result.bytes, result.mime);
   await archiveSessionStatus(finished, result);
+}
+
+/**
+ * For a guest who never sent a photo: the admin's accepted upload becomes a
+ * new, already complete session linked to them, so check-in hands it over
+ * like any other portrait. The caller records it on the roster.
+ */
+export async function createSessionFromFinal(
+  sessionId: string,
+  rosterEntryId: string,
+  finalResult: FinalResult,
+) {
+  const image = await readArchiveImage(finalResult.path);
+  if (!image) {
+    throw new FinalResultUnavailableError("無法保存調整後的作品，請稍後再試。");
+  }
+  const result = { bytes: image.bytes, mime: finalResult.mime };
+  const session = await createCompleteSession(sessionId, result, { rosterEntryId });
+  await archiveSessionCreated(session, result);
+  await archiveSessionStatus(session, result);
+}
+
+/**
+ * The session id inside a staging path signed for a guest with no portrait
+ * yet (see `createFinalUploadTarget`). Refuses any id that already has a
+ * record, so a path can never attach an upload to someone else's portrait.
+ */
+export async function unclaimedSessionFromUpload(objectPath: unknown): Promise<string> {
+  const sessionId =
+    typeof objectPath === "string" ? /^sessions\/([^/]+)\/uploads\//.exec(objectPath)?.[1] : null;
+  if (!isSessionId(sessionId) || (await readArchiveRecord(sessionId))) {
+    throw new FinalResultInputError("上傳的檔案位置不正確，請重新上傳。");
+  }
+  return sessionId;
 }
 
 export type FinalUploadTarget = {

@@ -16,6 +16,8 @@ const mocks = vi.hoisted(() => ({
   recordAdjusted: vi.fn(),
   recordPortrait: vi.fn(),
   complete: vi.fn(),
+  create: vi.fn(),
+  unclaimed: vi.fn(),
   store: vi.fn(),
   finalize: vi.fn(),
   clear: vi.fn(),
@@ -37,6 +39,8 @@ vi.mock("@/lib/portrait-archive", async (importOriginal) => ({
   clearFinalResult: mocks.clear,
   createFinalUploadTarget: mocks.target,
   completeSessionWithFinal: mocks.complete,
+  createSessionFromFinal: mocks.create,
+  unclaimedSessionFromUpload: mocks.unclaimed,
 }));
 
 const BASE = "http://booth.local/api/admin30910/roster/abc123/portrait";
@@ -189,11 +193,56 @@ describe("POST …/portrait", () => {
     expect(mocks.store).not.toHaveBeenCalled();
   });
 
-  it("refuses a guest who never submitted a photo", async () => {
+  it("refuses a guest whose render is still in progress", async () => {
     mocks.readAdjustable.mockResolvedValue(null);
     const response = await POST(multipart(), routeContext("abc123"));
     expect(response.status).toBe(400);
-    expect((await response.json()).error).toContain("還沒有作品可調整");
+    expect((await response.json()).error).toContain("仍在生成中");
+    expect(mocks.store).not.toHaveBeenCalled();
+  });
+
+  it("makes the upload the portrait of a guest who never sent a photo", async () => {
+    mocks.readAdjustable.mockResolvedValue({ sessionId: null, failed: false });
+    const response = await POST(multipart(), routeContext("abc123"));
+    expect(response.status).toBe(200);
+    const sessionId = mocks.store.mock.calls[0][0];
+    expect(sessionId).toMatch(/^[A-Za-z0-9_-]{32}$/);
+    expect(mocks.create).toHaveBeenCalledWith(sessionId, "abc123", FINAL);
+    expect(mocks.recordPortrait).toHaveBeenCalledWith("abc123", sessionId, "complete", {
+      isNewSession: true,
+    });
+    expect(mocks.recordAdjusted).toHaveBeenCalledWith("abc123", sessionId, UPLOADED_AT);
+    expect(mocks.complete).not.toHaveBeenCalled();
+  });
+
+  it("takes the new session id from a signed upload's path", async () => {
+    mocks.readAdjustable.mockResolvedValue({ sessionId: null, failed: false });
+    const fresh = "freshSessAbCdEfGh0123456789xyzAB";
+    mocks.unclaimed.mockResolvedValue(fresh);
+    const objectPath = `sessions/${fresh}/uploads/u1`;
+    const response = await POST(json(BASE, { objectPath }), routeContext("abc123"));
+    expect(response.status).toBe(200);
+    expect(mocks.unclaimed).toHaveBeenCalledWith(objectPath);
+    expect(mocks.finalize).toHaveBeenCalledWith(fresh, objectPath);
+    expect(mocks.create).toHaveBeenCalledWith(fresh, "abc123", FINAL);
+  });
+
+  it("never uses an upload path for a guest who already has a portrait", async () => {
+    mocks.readAdjustable.mockResolvedValue({ sessionId: "sess-1", failed: false });
+    await POST(json(BASE, { objectPath: "sessions/other/uploads/u1" }), routeContext("abc123"));
+    expect(mocks.unclaimed).not.toHaveBeenCalled();
+    expect(mocks.finalize).toHaveBeenCalledWith("sess-1", "sessions/other/uploads/u1");
+  });
+
+  it("signs uploads under a fresh id for a guest who never sent a photo", async () => {
+    mocks.readAdjustable.mockResolvedValue({ sessionId: null, failed: false });
+    mocks.target.mockResolvedValue(null);
+    const response = await signUpload(
+      json(`${BASE}/upload-url`, { mime: "image/jpeg", size: 1000 }),
+      routeContext("abc123"),
+    );
+    expect(response.status).toBe(200);
+    expect(mocks.target.mock.calls[0][0]).toMatch(/^[A-Za-z0-9_-]{32}$/);
   });
 
   it("leaves a finished portrait's status alone", async () => {

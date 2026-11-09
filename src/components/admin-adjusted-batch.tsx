@@ -139,6 +139,7 @@ export function AdminAdjustedBatch({
     : [];
   const replacing = ready.filter((row) => row.replaces).length;
   const completing = ready.filter((row) => row.completesFailed).length;
+  const creating = ready.filter((row) => row.createsPortrait).length;
   const problems = plan ? plan.rows.length - ready.length : 0;
   const failedCount = Object.values(rowStates).filter((state) => state.state === "failed").length;
   const needsAttention = problems + failedCount;
@@ -346,6 +347,7 @@ export function AdminAdjustedBatch({
             共 {plan.rows.length} 個檔案：可上傳 <strong>{ready.length}</strong>
             {replacing > 0 && `（其中 ${replacing} 張會取代已上傳的調整版）`}
             {completing > 0 && `（其中 ${completing} 張會補上生成失敗的作品）`}
+            {creating > 0 && `（其中 ${creating} 張會替沒有上傳照片的來賓建立作品）`}
             {problems > 0 && <>，<em>有問題 {problems}（不會上傳）</em></>}
           </p>
           {needsAttention > 0 && (
@@ -393,7 +395,9 @@ export function AdminAdjustedBatch({
                             ? state.message
                             : row.completesFailed
                               ? "生成失敗，以這張補上作品"
-                              : row.replaces
+                              : row.createsPortrait
+                                ? "沒有上傳照片，以這張建立作品"
+                                : row.replaces
                                 ? "會取代現有調整版"
                                 : "待上傳")}
                   </span>
