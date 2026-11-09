@@ -12,6 +12,7 @@ import {
   api,
   extensionForType,
   guestLabel,
+  hasFailedPortrait,
   hasPortrait,
   loadRoster,
   main,
@@ -48,6 +49,14 @@ await main(async (args) => {
   });
 
   console.log(`已存 ${saved}/${guests.length} 張${kind === "result" ? "目前版本" : "原圖"}到 ${path.resolve(args.out)}`);
+  const noOriginal = entries.filter(hasFailedPortrait);
+  if (noOriginal.length) {
+    console.log(
+      `\n生成失敗、沒有原圖（${noOriginal.length}）。修好的圖可直接上傳補上，檔名請用：\n- ${noOriginal
+        .map((entry) => originalFilename(entry, "jpg"))
+        .join("\n- ")}`,
+    );
+  }
   if (failed.length) {
     console.log(`下載失敗（${failed.length}）：\n- ${failed.join("\n- ")}`);
     process.exitCode = 2;

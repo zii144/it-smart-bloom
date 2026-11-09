@@ -66,7 +66,9 @@ function printPlan(rows) {
     const who = row.guest
       ? `${guestLabel(row.guest)}${row.matchedBy === "seat" ? "（依座位）" : row.matchedBy === "name" ? "（依姓名）" : ""}`
       : "—";
-    const status = row.problem ?? (row.replaces ? "會取代現有調整版" : "待上傳");
+    const status =
+      row.problem ??
+      (row.completesFailed ? "生成失敗，以這張補上作品" : row.replaces ? "會取代現有調整版" : "待上傳");
     console.log(`${row.problem ? "✗" : "✓"} ${row.fileName} → ${who} → ${status}`);
   }
 }
@@ -79,11 +81,12 @@ await main(async (args) => {
   const ready = rows.filter((row) => !row.problem);
   const byFallback = ready.filter((row) => row.matchedBy !== "id").length;
   const replacing = ready.filter((row) => row.replaces).length;
+  const completing = ready.filter((row) => row.completesFailed).length;
 
   printPlan(rows);
   console.log(
     `\n共 ${rows.length} 個檔案：可上傳 ${ready.length}，有問題 ${rows.length - ready.length}（不會上傳）` +
-      `；其中依座位或姓名配對 ${byFallback}、會取代現有調整版 ${replacing}。`,
+      `；其中依座位或姓名配對 ${byFallback}、會取代現有調整版 ${replacing}、補上生成失敗的作品 ${completing}。`,
   );
 
   if (!args.apply) {

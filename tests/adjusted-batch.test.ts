@@ -96,7 +96,7 @@ describe("planAdjustedUploads", () => {
     const rows = planAdjustedUploads([png("portrait.png"), png("Z9.png")], guests);
     expect(rows[0].problem).toContain("對不到來賓");
     expect(rows[1]).toMatchObject({ guest: noPortrait });
-    expect(rows[1].problem).toContain("沒有完成的作品");
+    expect(rows[1].problem).toContain("還沒有作品可調整");
   });
 
   it("refuses HEIC, PSD, empty and oversized files", () => {
@@ -133,6 +133,12 @@ describe("planAdjustedUploads", () => {
     const [row] = planAdjustedUploads([png("L5.png")], [wang, twin]);
     expect(row.guest).toBeNull();
     expect(row.problem).toContain("多位來賓");
+  });
+
+  it("lets an upload complete a failed render instead of regenerating", () => {
+    const failed = guest("failedGuestAbCdEf321", "F9", "張峻瑜", { portraitStatus: "failed" });
+    const [row] = planAdjustedUploads([png(`F9_張峻瑜_${failed.id}.jpg`)], [...guests, failed]);
+    expect(row).toMatchObject({ guest: failed, matchedBy: "id", problem: null, completesFailed: true });
   });
 
   it("flags files that would replace an existing adjustment", () => {

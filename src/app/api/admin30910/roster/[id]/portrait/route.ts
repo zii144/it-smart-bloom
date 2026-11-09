@@ -1,14 +1,19 @@
 import { adminRouteGuard } from "@/lib/admin-route";
 import {
   clearFinalResult,
+  completeSessionWithFinal,
   finalizeUploadedFinalResult,
   storeFinalResult,
 } from "@/lib/portrait-archive";
 import { RosterInputError } from "@/lib/roster";
 import { rosterJson } from "@/lib/roster-http";
-import { recordRosterPortraitAdjusted } from "@/lib/roster-store";
+import { recordRosterPortrait, recordRosterPortraitAdjusted } from "@/lib/roster-store";
 import { readUploadedImage } from "@/lib/sessions";
-import { portraitErrorResponse, portraitSessionFor } from "@/lib/portrait-http";
+import {
+  adjustableSessionFor,
+  portraitErrorResponse,
+  portraitSessionFor,
+} from "@/lib/portrait-http";
 
 export const runtime = "nodejs";
 /** Finalizing reads up to 40 MB from Storage, decodes it and writes it back. */
@@ -24,6 +29,8 @@ export const maxDuration = 120;
  *   rejects bodies over 4.5 MB, so this only suits small files and local dev.
  *
  * Guests who already checked in see it on their next load; their link stays.
+ * For a guest whose render failed, the upload completes the portrait instead
+ * of a regeneration: check-in then hands this file over.
  */
 export async function POST(
   request: Request,
@@ -34,7 +41,7 @@ export async function POST(
 
   try {
     const { id } = await params;
-    const sessionId = await portraitSessionFor(id);
+    const { sessionId, failed } = await adjustableSessionFor(id);
 
     let finalResult;
     if (request.headers.get("content-type")?.includes("application/json")) {
@@ -52,6 +59,10 @@ export async function POST(
       finalResult = await storeFinalResult(sessionId, { bytes, mime: image.type });
     }
 
+    if (failed) {
+      await completeSessionWithFinal(sessionId, finalResult);
+      await recordRosterPortrait(id, sessionId, "complete", { isNewSession: false });
+    }
     await recordRosterPortraitAdjusted(id, sessionId, finalResult.uploadedAt);
     return rosterJson({ portraitAdjustedAt: finalResult.uploadedAt });
   } catch (error) {

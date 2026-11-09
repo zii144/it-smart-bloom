@@ -4,6 +4,7 @@ import { strToU8, zipSync, type Zippable } from "fflate";
 import { useEffect, useMemo, useRef, useState, type DragEvent } from "react";
 import {
   extensionForType,
+  hasFailedPortrait,
   hasPortrait,
   originalFilename,
   planAdjustedUploads,
@@ -34,6 +35,17 @@ const README = `調整版作業說明
    先核對配對表，確認無誤後再上傳。
 4. 全部完成（已調整 = 有作品人數）後才開放報到。
 `;
+
+/**
+ * A failed render has no original in the zip, so the instructions name the
+ * file (with the guest id) that will complete it when uploaded.
+ */
+function readmeFor(entries: RosterEntry[]) {
+  const failed = entries.filter(hasFailedPortrait);
+  if (!failed.length) return README;
+  const names = failed.map((entry) => `   ${originalFilename(entry, "jpg")}`).join("\n");
+  return `${README}5. 以下來賓生成失敗，沒有原圖。修好的圖可直接上傳補上作品（不需重新生成），檔名請用：\n${names}\n`;
+}
 
 /** `generated`: the AI output to retouch. `result`: what guests get now, adjustments included. */
 type DownloadSource = "generated" | "result";
@@ -126,6 +138,7 @@ export function AdminAdjustedBatch({
     ? plan.rows.filter((row, index) => !row.problem && rowStates[index]?.state !== "done")
     : [];
   const replacing = ready.filter((row) => row.replaces).length;
+  const completing = ready.filter((row) => row.completesFailed).length;
   const problems = plan ? plan.rows.length - ready.length : 0;
   const failedCount = Object.values(rowStates).filter((state) => state.state === "failed").length;
   const needsAttention = problems + failedCount;
@@ -133,7 +146,7 @@ export function AdminAdjustedBatch({
   /** Zipped in the browser: a function response could never carry 127 originals. */
   async function downloadOriginals(source: DownloadSource) {
     setError(null);
-    const files: Zippable = { [README_NAME]: strToU8(README) };
+    const files: Zippable = { [README_NAME]: strToU8(readmeFor(entries)) };
     const failed: string[] = [];
     let fetched = 0;
     let done = 0;
@@ -332,6 +345,7 @@ export function AdminAdjustedBatch({
           <p className="admin-adjusted-summary">
             共 {plan.rows.length} 個檔案：可上傳 <strong>{ready.length}</strong>
             {replacing > 0 && `（其中 ${replacing} 張會取代已上傳的調整版）`}
+            {completing > 0 && `（其中 ${completing} 張會補上生成失敗的作品）`}
             {problems > 0 && <>，<em>有問題 {problems}（不會上傳）</em></>}
           </p>
           {needsAttention > 0 && (
@@ -377,9 +391,11 @@ export function AdminAdjustedBatch({
                           ? "完成"
                           : state?.state === "failed"
                             ? state.message
-                            : row.replaces
-                              ? "會取代現有調整版"
-                              : "待上傳")}
+                            : row.completesFailed
+                              ? "生成失敗，以這張補上作品"
+                              : row.replaces
+                                ? "會取代現有調整版"
+                                : "待上傳")}
                   </span>
                 </li>
               );

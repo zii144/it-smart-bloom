@@ -10,6 +10,7 @@ import { firebasePublicConfig } from "@/lib/firebase-public-config";
 import {
   archiveSessionStatus,
   clearFinalResult,
+  completeSessionWithFinal,
   countArchiveSessions,
   listArchiveSessions,
   readArchiveImage,
@@ -18,6 +19,7 @@ import {
   readArchiveRecord,
   storeFinalResult,
 } from "@/lib/portrait-archive";
+import { getSession, readResultImage } from "@/lib/sessions";
 import { previewInfo, realImage } from "./helpers";
 
 const TEST_EMULATOR_HOST = "127.0.0.1:8181";
@@ -150,6 +152,36 @@ describe.skipIf(emulatorHost !== TEST_EMULATOR_HOST)("portrait archive overview"
     await expect(
       finalizeUploadedFinalResult("sess-000", "sessions/sess-000/uploads/missing"),
     ).rejects.toBeInstanceOf(FinalResultInputError);
+  });
+
+  it("completes a failed render from the admin's upload, once", async () => {
+    const id = "failedRenderAbCdEfGh0123456789xy"; // the real 32-character shape
+    await getDb()!.collection("sessions").doc(id).set({
+      sessionId: id,
+      status: "failed",
+      error: "OpenAI 額度不足",
+      createdAt: "2026-10-29T05:00:00.000Z",
+      inputMime: "image/jpeg",
+      storage: { inputPath: null, resultPath: null },
+    });
+    const bytes = await realImage("jpeg", { width: 300, height: 300 });
+    const final = await storeFinalResult(id, { bytes, mime: "image/jpeg" });
+
+    await completeSessionWithFinal(id, final);
+    const record = await readArchiveRecord(id);
+    expect(record).toMatchObject({ status: "complete", resultMime: "image/jpeg" });
+    expect(record?.finalResult?.path).toBe(final.path);
+    expect((await readArchiveImage(record!.storage.resultPath!))?.bytes).toEqual(bytes);
+    const session = await getSession(id);
+    expect(session.status).toBe("complete");
+    expect(session.error).toBeUndefined();
+    expect(record?.error).toBeNull();
+    expect((await readResultImage(id)).bytes).toEqual(bytes);
+
+    // A retried upload does not rewrite the now-complete result.
+    const resultAt = record?.resultAt;
+    await completeSessionWithFinal(id, final);
+    expect((await readArchiveRecord(id))?.resultAt).toBe(resultAt);
   });
 
   it("archives when the result was written, which keys its preview", async () => {
