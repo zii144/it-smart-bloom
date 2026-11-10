@@ -4,13 +4,28 @@ import { useEffect, useMemo, useRef, useState, type FormEvent } from "react";
 import { formatTaipeiTime } from "@/lib/event-info";
 import { buildSeatBoard, normalizeSeatLabel, type SeatStatusSnapshot } from "@/lib/seat-status";
 import { useSeatStatus, type SeatConnection } from "@/lib/seat-status-client";
-import { FLOOR_PLAN_COLUMNS, FLOOR_PLAN_LABELS, FLOOR_PLAN_ROWS, FLOOR_PLAN_SEATS } from "@/lib/seat-floor-plan";
+import { FLOOR_PLAN_COLUMNS, FLOOR_PLAN_LABELS, FLOOR_PLAN_ROWS, FLOOR_PLAN_SEATS, WIDE_PLAN_COLUMNS, WIDE_PLAN_ROW_Y } from "@/lib/seat-floor-plan";
 import styles from "./seat-status-dashboard.module.css";
 import { SeatGuestCard } from "./seat-guest-card";
 
 const CONNECTION: Record<SeatConnection, string> = {
   connecting: "連線中", live: "即時連線", polling: "每 5 秒同步", offline: "連線中斷・保留最後資料", "auth-required": "等候顯示授權",
 };
+
+/** Seat geometry for one drawing; the seat markup itself is shared. */
+type SeatGeometry = {
+  columns: readonly number[]; rowY: readonly number[]; width: number; height: number; radius: number;
+  labelDy: number; numberX: number; numberDy: number; tick: (x: number, y: number) => string; markDx: number; markDy: number;
+};
+const PORTRAIT_SEATS: SeatGeometry = {
+  columns: FLOOR_PLAN_COLUMNS, rowY: FLOOR_PLAN_ROWS.map((row) => row.y), width: 21, height: 26, radius: 2,
+  labelDy: 16, numberX: 397, numberDy: 17, tick: (x, y) => `M${x + 14} ${y + 4}l1.5 1.5 2.5-3`, markDx: 17.5, markDy: 6,
+};
+const WIDE_SEATS: SeatGeometry = {
+  columns: WIDE_PLAN_COLUMNS, rowY: WIDE_PLAN_ROW_Y, width: 96, height: 36, radius: 4,
+  labelDy: 25, numberX: 1556, numberDy: 25, tick: (x, y) => `M${x + 76} ${y + 10}l3.5 3.5 6-7`, markDx: 85, markDy: 14,
+};
+const WIDE_LAYOUT = "16x9";
 
 function demoSnapshot(): SeatStatusSnapshot {
   return {
@@ -27,7 +42,8 @@ function VerticalLabel({ text, x, y, className }: { text: string; x: number; y: 
   return <text x={x} y={y} textAnchor="middle" className={className}>{[...text].map((letter, index) => <tspan key={index} x={x} dy={index ? "1.08em" : 0}>{letter}</tspan>)}</text>;
 }
 
-export function SeatStatusDashboard({ initialPreview = false }: { initialPreview?: boolean }) {
+export function SeatStatusDashboard({ initialPreview = false, initialWide = false }: { initialPreview?: boolean; initialWide?: boolean }) {
+  const [wide, setWide] = useState(initialWide);
   const [sessionVersion, setSessionVersion] = useState(0);
   const [demo, setDemo] = useState(initialPreview);
   const [preview, setPreview] = useState<SeatStatusSnapshot | null>(() => initialPreview ? demoSnapshot() : null);
@@ -118,10 +134,91 @@ export function SeatStatusDashboard({ initialPreview = false }: { initialPreview
 
   function openPreview() { setPreview(demoSnapshot()); setDemo(true); }
 
+  function toggleWide() {
+    const next = !wide;
+    setWide(next); closeGuest();
+    // Keep the choice in the address so a reload or bookmark reopens the same layout.
+    const url = new URL(window.location.href);
+    if (next) url.searchParams.set("layout", WIDE_LAYOUT); else url.searchParams.delete("layout");
+    window.history.replaceState(null, "", url);
+  }
+
+  function seatRows(plan: SeatGeometry) {
+    return <g aria-label="A 至 O 排座位">
+      {FLOOR_PLAN_ROWS.map((row, rowIndex) => { const y = plan.rowY[rowIndex]; return <g key={row.label} aria-label={`${row.label} 排`}>
+        {plan.columns.map((x, column) => {
+          const label = `${row.label}${column + 1}`;
+          const seat = mapped.get(label);
+          const conflict = Boolean(seat && seat.assigned > 1);
+          const arrived = Boolean(seat?.arrived);
+          const status = conflict ? `重複分配 ${seat!.assigned} 位，已報到 ${seat!.arrived} 位` : arrived ? "已報到" : seat ? "尚未報到" : snapshot ? "尚未分配" : "等候同步";
+          // <title> must have one text child for SSR and hydration to agree.
+          const tooltip = `${label}・${status}${arrived && seat?.checkedInAt ? `・${formatTaipeiTime(seat.checkedInAt)}` : ""}`;
+          return <g key={label} className={`${styles.seat} ${rowIndex % 2 ? styles.alternate : ""} ${snapshot && !seat ? styles.unassigned : ""} ${arrived ? styles.arrived : ""} ${conflict ? styles.conflict : ""} ${highlighted.has(label) ? styles.justArrived : ""}`} aria-label={`${label}，${status}`}
+            style={{ animationDelay: `${rowIndex * 26 + column * 8}ms` }}
+            role="button" tabIndex={0} aria-haspopup="dialog" aria-expanded={!needsAuth && selectedSeat?.seat === label}
+            aria-controls={!needsAuth && selectedSeat?.seat === label ? "seat-guest-card" : undefined} data-floor-seat
+            onPointerEnter={(event) => showGuest(label, event.currentTarget)} onPointerLeave={scheduleGuestClose}
+            onFocus={(event) => showGuest(label, event.currentTarget)} onBlur={(event) => {
+              if (!(event.relatedTarget instanceof Element && event.relatedTarget.closest("[data-guest-card]"))) scheduleGuestClose();
+            }} onClick={(event) => showGuest(label, event.currentTarget)} onKeyDown={(event) => {
+              if (event.key === "Enter" || event.key === " ") { event.preventDefault(); showGuest(label, event.currentTarget); }
+            }}>
+            <title>{tooltip}</title>
+            <rect x={x} y={y} width={plan.width} height={plan.height} rx={plan.radius} />
+            <text x={x + plan.width / 2} y={y + plan.labelDy} textAnchor="middle" className={styles.seatLabel}>{label}</text>
+            {arrived && !conflict && <path d={plan.tick(x, y)} pathLength={1} className={styles.arrivalTick} aria-hidden="true" />}
+            {conflict && <text x={x + plan.markDx} y={y + plan.markDy} textAnchor="middle" className={styles.conflictMark}>!</text>}
+          </g>;
+        })}
+        <text x={plan.numberX} y={y + plan.numberDy} textAnchor="middle" className={`${styles.rowNumber} ${rowIndex >= 13 ? styles.reservedNumber : ""}`}>{rowIndex + 3}</text>
+      </g>; })}
+    </g>;
+  }
+
+  const legendItems = <ul>
+    <li><span className={`${styles.statusSwatch} ${styles.arrivedSwatch}`} aria-hidden="true">✓</span><span>已報到</span></li>
+    <li><span className={`${styles.statusSwatch} ${styles.waitingSwatch}`} aria-hidden="true">○</span><span>未報到</span></li>
+    <li><span className={`${styles.statusSwatch} ${styles.unassignedSwatch}`} aria-hidden="true">–</span><span>未分配</span></li>
+  </ul>;
+  const statusText = demo ? "示範資料・非即時報到" : CONNECTION[connection];
+  const toolbarButtons = <div>
+    <button type="button" onClick={() => setInformationOpen(!informationOpen)} aria-expanded={informationOpen} aria-controls="seat-display-information">看板資訊</button>
+    <button type="button" onClick={toggleWide} aria-pressed={wide} aria-label={wide ? "切換為直式版面" : "切換為 16:9 版面"}>{wide ? "直式版面" : "16:9 版面"}</button>
+    <button type="button" onClick={toggleFullscreen} aria-label={fullscreen ? "離開全螢幕" : "進入全螢幕"}>{fullscreen ? "離開全螢幕" : "全螢幕"}</button>
+  </div>;
+
   return (
-    <main className={styles.dashboard} onPointerDown={(event) => {
+    <main className={`${styles.dashboard} ${wide ? styles.wide : ""}`} onPointerDown={(event) => {
       if (!(event.target as Element).closest("[data-floor-seat], [data-guest-card]")) closeGuest();
     }} onKeyDown={(event) => { if (event.key === "Escape") closeGuest(); }}>
+      {wide ? <section className={styles.wideMap} aria-label="座位報到狀態" inert={needsAuth}>
+          <svg className={styles.widePlan} viewBox="0 0 1600 900" preserveAspectRatio="xMidYMid meet" role="group" aria-labelledby="floor-plan-title floor-plan-description">
+            <title id="floor-plan-title">114及115年度路老師頒獎授證典禮暨成果展座位圖</title>
+            <desc id="floor-plan-description">16:9 橫式版面。舞台在上方，前方兩排 VIP，A 至 O 排每排十二席，每四席一組，保留兩條縱向走道與 C、J 排後方橫向走道。左側有茶水區、兩處門口及兩處報到區，後方 N、O 排為預備座。桃色代表已報到。</desc>
+            <rect width="1600" height="900" rx="8" className={styles.paper} />
+            <rect x="130" y="16" width="1382" height="52" rx="4" className={styles.stage} />
+            <text x="821" y="53" textAnchor="middle" className={styles.stageText}>舞 台 區</text>
+            {[82, 126].map((y, row) => <g key={y} aria-label={`VIP 第 ${row + 1} 排，場地標示`}>
+              {[219, 914].flatMap((start) => [..."VIPVIP"].map((letter, index) => <g key={`${start}-${index}`}>
+                <rect x={start + index * 87} y={y} width="74" height="36" rx="4" className={styles.vip} />
+                <text x={start + index * 87 + 37} y={y + 25} textAnchor="middle" className={styles.vipText}>{letter}</text>
+              </g>))}
+              <text x="1556" y={y + 25} textAnchor="middle" className={`${styles.rowNumber} ${styles.redText}`}>{row + 1}</text>
+            </g>)}
+            {seatRows(WIDE_SEATS)}
+            <path d="M80 16V631M80 671V770M80 810V892" className={styles.wall} />
+            <path d="M80 631H60A20 20 0 0 0 80 651A20 20 0 0 0 60 671H80M80 770H60A20 20 0 0 0 80 790A20 20 0 0 0 60 810H80" className={styles.doors} />
+            <rect x="88" y="382" width="24" height="168" rx="2" className={styles.stage} />
+            <VerticalLabel text="茶水區" x={100} y={453} className={styles.teaText} />
+            <rect x="22" y="684" width="34" height="72" rx="2" className={styles.vip} />
+            <VerticalLabel text="報到區" x={39} y={707} className={styles.checkInText} />
+            <rect x="22" y="822" width="34" height="64" rx="2" className={styles.vip} />
+            <VerticalLabel text="報到區" x={39} y={841} className={styles.checkInText} />
+            <VerticalLabel text="預備座" x={1556} y={818} className={styles.reservedText} />
+          </svg>
+        </section>
+      : <>
       <section className={styles.mapFrame} aria-label="座位報到狀態" inert={needsAuth}>
         <svg className={styles.floorPlan} viewBox="0 0 418 745" preserveAspectRatio="xMidYMid meet" role="group" aria-labelledby="floor-plan-title floor-plan-description">
           <title id="floor-plan-title">114及115年度路老師頒獎授證典禮暨成果展座位圖</title>
@@ -139,35 +236,7 @@ export function SeatStatusDashboard({ initialPreview = false }: { initialPreview
             </g>))}
             <text x="397" y={y + 17} textAnchor="middle" className={`${styles.rowNumber} ${styles.redText}`}>{row + 1}</text>
           </g>)}
-          <g aria-label="A 至 O 排座位">
-            {FLOOR_PLAN_ROWS.map((row, rowIndex) => <g key={row.label} aria-label={`${row.label} 排`}>
-              {FLOOR_PLAN_COLUMNS.map((x, column) => {
-                const label = `${row.label}${column + 1}`;
-                const seat = mapped.get(label);
-                const conflict = Boolean(seat && seat.assigned > 1);
-                const arrived = Boolean(seat?.arrived);
-                const status = conflict ? `重複分配 ${seat!.assigned} 位，已報到 ${seat!.arrived} 位` : arrived ? "已報到" : seat ? "尚未報到" : snapshot ? "尚未分配" : "等候同步";
-                // <title> must have one text child for SSR and hydration to agree.
-                const tooltip = `${label}・${status}${arrived && seat?.checkedInAt ? `・${formatTaipeiTime(seat.checkedInAt)}` : ""}`;
-                return <g key={label} className={`${styles.seat} ${rowIndex % 2 ? styles.alternate : ""} ${snapshot && !seat ? styles.unassigned : ""} ${arrived ? styles.arrived : ""} ${conflict ? styles.conflict : ""} ${highlighted.has(label) ? styles.justArrived : ""}`} aria-label={`${label}，${status}`}
-                  role="button" tabIndex={0} aria-haspopup="dialog" aria-expanded={!needsAuth && selectedSeat?.seat === label}
-                  aria-controls={!needsAuth && selectedSeat?.seat === label ? "seat-guest-card" : undefined} data-floor-seat
-                  onPointerEnter={(event) => showGuest(label, event.currentTarget)} onPointerLeave={scheduleGuestClose}
-                  onFocus={(event) => showGuest(label, event.currentTarget)} onBlur={(event) => {
-                    if (!(event.relatedTarget instanceof Element && event.relatedTarget.closest("[data-guest-card]"))) scheduleGuestClose();
-                  }} onClick={(event) => showGuest(label, event.currentTarget)} onKeyDown={(event) => {
-                    if (event.key === "Enter" || event.key === " ") { event.preventDefault(); showGuest(label, event.currentTarget); }
-                  }}>
-                  <title>{tooltip}</title>
-                  <rect x={x} y={row.y} width="21" height="26" rx="2" />
-                  <text x={x + 10.5} y={row.y + 16} textAnchor="middle" className={styles.seatLabel}>{label}</text>
-                  {arrived && !conflict && <path d={`M${x + 14} ${row.y + 4}l1.5 1.5 2.5-3`} className={styles.arrivalTick} aria-hidden="true" />}
-                  {conflict && <text x={x + 17.5} y={row.y + 6} textAnchor="middle" className={styles.conflictMark}>!</text>}
-                </g>;
-              })}
-              <text x="397" y={row.y + 17} textAnchor="middle" className={`${styles.rowNumber} ${rowIndex >= 13 ? styles.reservedNumber : ""}`}>{rowIndex + 3}</text>
-            </g>)}
-          </g>
+          {seatRows(PORTRAIT_SEATS)}
           <path d="M31.5 45V522M31.5 554V630.5M31.5 662.5V741" className={styles.wall} />
           <path d="M31.5 522H15.5A16 16 0 0 0 31.5 538A16 16 0 0 0 15.5 554H31.5M31.5 630.5H15.5A16 16 0 0 0 31.5 646.5A16 16 0 0 0 15.5 662.5H31.5" className={styles.doors} />
           <rect x="37" y="330" width="15" height="131" rx="1" className={styles.stage} />
@@ -181,16 +250,13 @@ export function SeatStatusDashboard({ initialPreview = false }: { initialPreview
       </section>
       <section className={styles.statusLegend} aria-label="報到狀態圖例" inert={needsAuth}>
         <h2>顏色說明</h2>
-        <ul>
-          <li><span className={`${styles.statusSwatch} ${styles.arrivedSwatch}`} aria-hidden="true">✓</span><span>已報到</span></li>
-          <li><span className={`${styles.statusSwatch} ${styles.waitingSwatch}`} aria-hidden="true">○</span><span>未報到</span></li>
-          <li><span className={`${styles.statusSwatch} ${styles.unassignedSwatch}`} aria-hidden="true">–</span><span>未分配</span></li>
-        </ul>
+        {legendItems}
         <p>白色／淺綠色皆為未報到；磚紅色為 VIP 區標示。</p>
       </section>
+      </>}
       <footer className={styles.toolbar} inert={needsAuth}>
-        <span role="status" className={connection === "offline" ? styles.offline : undefined}>{demo ? "示範資料・非即時報到" : CONNECTION[connection]}</span>
-        <div><button type="button" onClick={() => setInformationOpen(!informationOpen)} aria-expanded={informationOpen} aria-controls="seat-display-information">看板資訊</button><button type="button" onClick={toggleFullscreen} aria-label={fullscreen ? "離開全螢幕" : "進入全螢幕"}>{fullscreen ? "離開全螢幕" : "全螢幕"}</button></div>
+        <span role="status" className={connection === "offline" ? styles.offline : undefined}>{statusText}</span>
+        {toolbarButtons}
       </footer>
       {!needsAuth && selectedSeat && <SeatGuestCard key={`${demo}:${sessionVersion}:${selectedSeat.seat}:${selectedEntries.map((entry) => entry.id).join(",")}`}
         seat={selectedSeat.seat} entries={selectedEntries} demo={demo} position={{ left: selectedSeat.left, top: selectedSeat.top }}

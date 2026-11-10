@@ -266,3 +266,26 @@ it("offers a retry after a guest lookup failure", async () => {
   await act(async () => { vi.advanceTimersByTime(150); });
   expect(view.getByText("重試來賓")).toBeTruthy();
 });
+
+it("re-flows the same 180 seats into the 16:9 layout and switches back to the portrait plan", () => {
+  const view = render(<SeatStatusDashboard initialWide />);
+  const map = view.getByRole("group", { name: /114及115年度/ });
+  expect(map.getAttribute("viewBox")).toBe("0 0 1600 900");
+  expect(view.getByLabelText("A 至 O 排座位").querySelectorAll("g[aria-label] rect")).toHaveLength(180);
+  const rect = (label: string) => view.getByLabelText(label).querySelector("rect")!;
+  expect(rect("A1，已報到").getAttribute("width")).toBe("96");
+  // Aisles survive the re-flow: wider gaps after seats 4 and 8, and after rows C and J.
+  expect(Number(rect("A5，尚未分配").getAttribute("x")) - Number(rect("A4，尚未報到").getAttribute("x"))).toBe(166);
+  expect(Number(rect("D1，尚未分配").getAttribute("y")) - Number(rect("C1，尚未分配").getAttribute("y"))).toBe(62);
+  expect(Number(rect("K1，尚未分配").getAttribute("y")) - Number(rect("J1，尚未分配").getAttribute("y"))).toBe(62);
+  expect(view.getByLabelText("VIP 第 2 排，場地標示").querySelectorAll("rect")).toHaveLength(12);
+  // The map owns the whole screen: no legend or side panel, only the toolbar.
+  expect(view.queryByLabelText("報到狀態圖例")).toBeNull();
+  expect(view.getByRole("status").textContent).toBe("即時連線");
+  fireEvent.click(view.getByRole("button", { name: "切換為直式版面" }));
+  expect(view.getByRole("group", { name: /114及115年度/ }).getAttribute("viewBox")).toBe("0 0 418 745");
+  expect(window.location.search).toBe("");
+  fireEvent.click(view.getByRole("button", { name: "切換為 16:9 版面" }));
+  expect(window.location.search).toBe("?layout=16x9");
+  window.history.replaceState(null, "", window.location.pathname);
+});

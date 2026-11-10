@@ -24,9 +24,19 @@ authorization. Its fictional arrivals reproduce the reference's peach N/O rows.
 The floor plan uses the supplied 418 × 745 reference coordinates: a stage,
 two VIP rows, A–O rows of twelve seats in three blocks of four, cross aisles
 after C and J, the left wall and door, tea area, two check-in stations, and
-N/O reserve rows. SVG scales the complete layout uniformly in both orientations;
-seat positions never reflow or paginate. White/pale-green alternating rows are
+N/O reserve rows. SVG scales the complete layout uniformly; seat positions
+never paginate. White/pale-green alternating rows are
 venue styling; checked-in seats use #F8DDD3 plus a small check mark.
+**16:9 版面** in the toolbar (or `/seat-status?layout=16x9`, combinable with
+`preview=1`) switches to a full-screen landscape drawing. The
+plan is re-flowed into a 1600 × 900 drawing — same order, blocks, aisles and
+venue markers, stage still on top — with 96 × 36 seats so labels stay legible
+where the portrait drawing would shrink to a narrow strip. Only the map and the toolbar are shown; totals stay
+in **看板資訊**. The toggle rewrites the address
+so a reload keeps the layout. Motion is limited to a short staggered seat
+fade-in, a drawn check mark and colour fade on arrival, and a breathing
+connection dot; all of it is disabled under `prefers-reduced-motion`.
+
 The page has a warm cream/sage/peach backdrop and a persistent legend below
 the plan. Unassigned seats use a neutral dashed outline; duplicate assignments
 use an amber warning fill and border. VIP brick red is a venue marker, not an
