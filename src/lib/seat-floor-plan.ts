@@ -11,3 +11,11 @@ export const FLOOR_PLAN_SEATS = FLOOR_PLAN_ROWS.flatMap((row) =>
   FLOOR_PLAN_COLUMNS.map((x, column) => ({ label: `${row.label}${column + 1}`, x, y: row.y })),
 );
 export const FLOOR_PLAN_LABELS = new Set(FLOOR_PLAN_SEATS.map((seat) => seat.label));
+
+/**
+ * The same venue re-flowed for a 16:9 screen, in a 1600 × 900 drawing that
+ * fills the screen. Order, blocks and aisles match the reference;
+ * only the proportions change so seats can be wide enough to read.
+ */
+export const WIDE_PLAN_COLUMNS = [130, 236, 342, 448, 614, 720, 826, 932, 1098, 1204, 1310, 1416];
+export const WIDE_PLAN_ROW_Y = [188, 232, 276, 338, 382, 426, 470, 514, 558, 602, 664, 708, 752, 796, 840];
