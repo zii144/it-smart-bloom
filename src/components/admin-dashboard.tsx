@@ -346,6 +346,9 @@ function AdminChrome({
   );
 }
 
+// The 資料重置 tab is hidden from the console; flip to true to bring it back.
+const SHOW_RESET_TAB = false;
+
 export function AdminDashboard({
   initial,
 }: {
@@ -476,14 +479,16 @@ export function AdminDashboard({
         >
           批次生成
         </button>
-        <button
-          type="button"
-          className={`admin-tab-danger${tab === "reset" ? " is-active" : ""}`}
-          aria-pressed={tab === "reset"}
-          onClick={() => setTab("reset")}
-        >
-          資料重置
-        </button>
+        {SHOW_RESET_TAB && (
+          <button
+            type="button"
+            className={`admin-tab-danger${tab === "reset" ? " is-active" : ""}`}
+            aria-pressed={tab === "reset"}
+            onClick={() => setTab("reset")}
+          >
+            資料重置
+          </button>
+        )}
       </nav>
 
       {/* Both panels stay mounted: switching tabs mid-batch must not drop the queue. */}
@@ -632,15 +637,17 @@ export function AdminDashboard({
         />
       </div>
 
-      <div className="admin-tabpanel" hidden={tab !== "reset"}>
-        <AdminResetPanel
-          active={tab === "reset"}
-          onReset={() => {
-            setDataEpoch((epoch) => epoch + 1);
-            setOlderArchive([]);
-          }}
-        />
-      </div>
+      {SHOW_RESET_TAB && (
+        <div className="admin-tabpanel" hidden={tab !== "reset"}>
+          <AdminResetPanel
+            active={tab === "reset"}
+            onReset={() => {
+              setDataEpoch((epoch) => epoch + 1);
+              setOlderArchive([]);
+            }}
+          />
+        </div>
+      )}
     </AdminChrome>
   );
 }
